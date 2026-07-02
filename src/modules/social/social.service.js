@@ -50,6 +50,19 @@ const tokenData = await tokenResponse.json();
 if (!tokenResponse.ok || !tokenData.access_token) {
   throw new Error(tokenData.error?.message || "Access token failed");
 }
+
+const meResponse = await fetch(
+  `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
+);
+
+const me = await meResponse.json();
+
+console.log("=================================");
+console.log("LOGGED FACEBOOK USER");
+console.log(me);
+console.log("=================================");
+
+
 const permissionsResponse = await fetch(
   `https://graph.facebook.com/v23.0/me/permissions?access_token=${tokenData.access_token}`
 );
