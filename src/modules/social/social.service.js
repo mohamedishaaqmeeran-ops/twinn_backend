@@ -14,13 +14,11 @@ exports.getOAuthURL = (platform) => {
   const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
 
   if (platform === "instagram") {
-    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${process.env.INSTAGRAM_APP_ID}
-&redirect_uri=${encodeURIComponent(`${REDIRECT_BASE}/api/social/callback/instagram`)}
-&scope=${encodeURIComponent(
-"public_profile,pages_show_list,pages_read_engagement,pages_manage_metadata,business_management,instagram_basic"
-)}
-&response_type=code
-&auth_type=rerequest`;
+    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&scope=${encodeURIComponent(
+      "public_profile,pages_show_list,pages_read_engagement,instagram_basic"
+    )}&response_type=code&auth_type=rerequest`;
   }
 
   if (platform === "facebook") {
@@ -66,13 +64,6 @@ exports.handleCallback = async (platform, code) => {
 
   const meData = await meResponse.json();
   console.log("LOGGED FACEBOOK USER:", JSON.stringify(meData, null, 2));
-
-const debug = await fetch(
-`https://graph.facebook.com/v23.0/me?fields=id,name,accounts{id,name}&access_token=${tokenData.access_token}`
-);
-
- console.log(await debug.json());
-
 
   const pagesResponse = await fetch(
       `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token&access_token=${tokenData.access_token}`
