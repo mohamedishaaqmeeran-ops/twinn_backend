@@ -58,7 +58,14 @@ exports.handleCallback = async (platform, code) => {
   }
 
   if (platform === "instagram") {
-    const pagesResponse = await fetch(
+  const meResponse = await fetch(
+    `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
+  );
+
+  const meData = await meResponse.json();
+  console.log("LOGGED FACEBOOK USER:", JSON.stringify(meData, null, 2));
+
+  const pagesResponse = await fetch(
       `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token&access_token=${tokenData.access_token}`
     );
 
