@@ -21,23 +21,17 @@ exports.oauthCallback = async (req, res) => {
     const { code } = req.query;
 
     if (!code) {
-      return res.redirect(
-        `${socialService.FRONTEND_URL}/app/connect?status=failed`
-      );
+      return res.redirect(`${process.env.FRONTEND_URL}/app/connect?status=failed`);
     }
 
     await socialService.handleCallback(platform, code);
 
-    res.redirect(
-      `${socialService.FRONTEND_URL}/app/connect?status=connected&platform=${platform}`
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/app/connect?status=connected&platform=${platform}`
     );
   } catch (error) {
-    console.log("OAUTH CALLBACK ERROR:", error.message);
-
-    res.redirect(
-      `${socialService.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(
-        error.message
-      )}`
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(error.message)}`
     );
   }
 };
