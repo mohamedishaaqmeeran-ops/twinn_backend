@@ -67,6 +67,13 @@ exports.handleCallback = async (platform, code) => {
   const meData = await meResponse.json();
   console.log("LOGGED FACEBOOK USER:", JSON.stringify(meData, null, 2));
 
+const debug = await fetch(
+`https://graph.facebook.com/v23.0/me?fields=id,name,accounts{id,name}&access_token=${tokenData.access_token}`
+);
+
+ console.log(await debug.json());
+
+
   const pagesResponse = await fetch(
       `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token&access_token=${tokenData.access_token}`
     );
