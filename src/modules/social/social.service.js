@@ -45,12 +45,17 @@ exports.handleCallback = async (platform, code) => {
   const tokenResponse = await fetch(tokenUrl);
 const tokenData = await tokenResponse.json();
 
-console.log("TOKEN DATA:", tokenData);
+
 
 if (!tokenResponse.ok || !tokenData.access_token) {
   throw new Error(tokenData.error?.message || "Access token failed");
 }
+const permissionsResponse = await fetch(
+  `https://graph.facebook.com/v23.0/me/permissions?access_token=${tokenData.access_token}`
+);
 
+const permissionsData = await permissionsResponse.json();
+console.log("PERMISSIONS:", JSON.stringify(permissionsData, null, 2));
   if (platform === "instagram") {
    
 
