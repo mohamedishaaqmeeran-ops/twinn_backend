@@ -58,9 +58,16 @@ if (!tokenResponse.ok || !tokenData.access_token) {
 
     const pagesData = await pagesResponse.json();
 
-    if (!pagesData.data?.length) {
-      throw new Error("No Facebook Page found for this account.");
-    }
+   const pagesResponse = await fetch(
+  `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
+);
+
+const pagesData = await pagesResponse.json();
+
+console.log("=================================");
+console.log("PAGES RESPONSE");
+console.log(JSON.stringify(pagesData, null, 2));
+console.log("=================================");
 
     const pageWithInstagram = pagesData.data.find(
       (page) => page.instagram_business_account
