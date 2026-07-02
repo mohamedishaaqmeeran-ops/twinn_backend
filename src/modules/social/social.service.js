@@ -20,18 +20,19 @@ exports.getOAuthURL = (platform) => {
   }
 
 if (platform === "instagram") {
-  return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${process.env.FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(
+  return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${process.env.INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(
     `${REDIRECT_BASE}/api/social/callback/instagram`
-  )}&scope=public_profile&response_type=code`;
+  )}&scope=${encodeURIComponent(
+    "public_profile,pages_show_list,pages_read_engagement,instagram_basic"
+  )}&response_type=code`;
 }
 
   throw new Error("Unsupported platform");
 };
 
 exports.handleCallback = async (platform, code) => {
-  const appId = process.env.FACEBOOK_APP_ID;
-  const appSecret = process.env.FACEBOOK_APP_SECRET;
-
+  const appId = process.env.INSTAGRAM_APP_ID;
+  const appSecret = process.env.INSTAGRAM_APP_SECRET;
   const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
 
   const tokenUrl =
@@ -44,10 +45,47 @@ exports.handleCallback = async (platform, code) => {
   const tokenResponse = await fetch(tokenUrl);
   const tokenData = await tokenResponse.json();
 
-  console.log("TOKEN DATA:", tokenData);
-
   if (!tokenData.access_token) {
     throw new Error(tokenData.error?.message || "Access token failed");
+  }
+
+  if (platform === "instagram") {
+    const pagesResponse = await fetch(
+      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
+    );
+
+    const pagesData = await pagesResponse.json();
+
+    if (!pagesData.data?.length) {
+      throw new Error("No Facebook Page found for this account.");
+    }
+
+    const pageWithInstagram = pagesData.data.find(
+      (page) => page.instagram_business_account
+    );
+
+    if (!pageWithInstagram) {
+      throw new Error("No Instagram account linked to your Facebook Page.");
+    }
+
+    const ig = pageWithInstagram.instagram_business_account;
+
+    return Connection.findOneAndUpdate(
+      { platform: "instagram", platformUserId: ig.id },
+      {
+        platform: "instagram",
+        platformUserId: ig.id,
+        username: ig.username,
+        name: ig.name || ig.username,
+        avatarUrl: ig.profile_picture_url,
+        pageId: pageWithInstagram.id,
+        pageName: pageWithInstagram.name,
+        pageAccessToken: pageWithInstagram.access_token,
+        accessToken: tokenData.access_token,
+        connected: true,
+      },
+      { upsert: true, new: true }
+    );
   }
 
   const profileResponse = await fetch(
@@ -56,12 +94,10 @@ exports.handleCallback = async (platform, code) => {
 
   const profile = await profileResponse.json();
 
-  console.log("PROFILE:", profile);
-
-  const connection = await Connection.findOneAndUpdate(
-    { platform, platformUserId: profile.id },
+  return Connection.findOneAndUpdate(
+    { platform: "facebook", platformUserId: profile.id },
     {
-      platform,
+      platform: "facebook",
       platformUserId: profile.id,
       name: profile.name,
       accessToken: tokenData.access_token,
@@ -69,8 +105,6 @@ exports.handleCallback = async (platform, code) => {
     },
     { upsert: true, new: true }
   );
-
-  return connection;
 };
 
 exports.getConnections = async () => {
