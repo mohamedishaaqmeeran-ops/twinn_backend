@@ -1,8 +1,8 @@
 const fetch = require("node-fetch");
 const Connection = require("../../models/Connection");
 
-const REDIRECT_BASE = process.env.REDIRECT_BASE || "http://localhost:8000";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
+const REDIRECT_BASE = process.env.REDIRECT_BASE || "https://twinn-backend.onrender.com";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://twinn.live";
 
 exports.FRONTEND_URL = FRONTEND_URL;
 

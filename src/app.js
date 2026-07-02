@@ -12,6 +12,7 @@ app.use(
       "http://localhost:5173",
       "http://127.0.0.1:5173",
       "https://twinn.live",
+      "https://www.twinn.live",
       "https://ai-twin-63zh.vercel.app",
       "https://ai-twin-iota.vercel.app"
     ],
