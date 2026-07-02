@@ -2,37 +2,45 @@ const fetch = require("node-fetch");
 const Connection = require("../../models/Connection");
 
 const REDIRECT_BASE = process.env.REDIRECT_BASE || "https://twinn-backend.onrender.com";
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://twinn.live";
-
-exports.FRONTEND_URL = FRONTEND_URL;
 
 exports.getOAuthURL = (platform) => {
-  const metaAppId = process.env.FACEBOOK_APP_ID;
+  const appId =
+    platform === "instagram"
+      ? process.env.INSTAGRAM_APP_ID
+      : process.env.FACEBOOK_APP_ID;
 
-  if (!metaAppId) {
-    throw new Error("FACEBOOK_APP_ID missing in .env");
+  if (!appId) throw new Error("Meta App ID missing in .env");
+
+  const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
+
+  if (platform === "instagram") {
+    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&scope=${encodeURIComponent(
+      "public_profile,pages_show_list,pages_read_engagement,instagram_basic"
+    )}&response_type=code&auth_type=rerequest`;
   }
 
   if (platform === "facebook") {
-    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${metaAppId}&redirect_uri=${encodeURIComponent(
-      `${REDIRECT_BASE}/api/social/callback/facebook`
+    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
+      redirectUri
     )}&scope=public_profile&response_type=code`;
   }
-
-if (platform === "instagram") {
-  return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${process.env.INSTAGRAM_APP_ID}&redirect_uri=${encodeURIComponent(
-    `${REDIRECT_BASE}/api/social/callback/instagram`
-  )}&scope=${encodeURIComponent(
-    "public_profile,pages_show_list,pages_read_engagement,instagram_basic"
-  )}&response_type=code&auth_type=rerequest`;
-}
 
   throw new Error("Unsupported platform");
 };
 
 exports.handleCallback = async (platform, code) => {
-  const appId = process.env.INSTAGRAM_APP_ID;
-  const appSecret = process.env.INSTAGRAM_APP_SECRET;
+  const appId =
+    platform === "instagram"
+      ? process.env.INSTAGRAM_APP_ID
+      : process.env.FACEBOOK_APP_ID;
+
+  const appSecret =
+    platform === "instagram"
+      ? process.env.INSTAGRAM_APP_SECRET
+      : process.env.FACEBOOK_APP_SECRET;
+
   const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
 
   const tokenUrl =
@@ -43,76 +51,59 @@ exports.handleCallback = async (platform, code) => {
     `&code=${code}`;
 
   const tokenResponse = await fetch(tokenUrl);
-const tokenData = await tokenResponse.json();
+  const tokenData = await tokenResponse.json();
 
+  if (!tokenResponse.ok || !tokenData.access_token) {
+    throw new Error(tokenData.error?.message || "Access token failed");
+  }
 
-
-if (!tokenResponse.ok || !tokenData.access_token) {
-  throw new Error(tokenData.error?.message || "Access token failed");
-}
-
-const meResponse = await fetch(
-  `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
-);
-
-const me = await meResponse.json();
-
-console.log("=================================");
-console.log("LOGGED FACEBOOK USER");
-console.log(me);
-console.log("=================================");
-
-
-const permissionsResponse = await fetch(
-  `https://graph.facebook.com/v23.0/me/permissions?access_token=${tokenData.access_token}`
-);
-
-const permissionsData = await permissionsResponse.json();
-console.log("PERMISSIONS:", JSON.stringify(permissionsData, null, 2));
   if (platform === "instagram") {
-   
-
-   const pagesResponse = await fetch(
-  `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
-);
-
-const pagesData = await pagesResponse.json();
-
-console.log("=================================");
-console.log("PAGES RESPONSE");
-console.log(JSON.stringify(pagesData, null, 2));
-console.log("=================================");
-
-    const pageWithInstagram = pagesData.data.find(
-      (page) => page.instagram_business_account
+    const pagesResponse = await fetch(
+      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token&access_token=${tokenData.access_token}`
     );
 
-    if (!pageWithInstagram) {
-      throw new Error("No Instagram account linked to your Facebook Page.");
+    const pagesData = await pagesResponse.json();
+    console.log("PAGES RESPONSE:", JSON.stringify(pagesData, null, 2));
+
+    if (!pagesData.data || pagesData.data.length === 0) {
+      throw new Error("No Facebook Page permission received. Reconnect and select your Page.");
     }
 
-    const ig = pageWithInstagram.instagram_business_account;
+    for (const page of pagesData.data) {
+      const igResponse = await fetch(
+        `https://graph.facebook.com/v23.0/${page.id}?fields=instagram_business_account{id,username,name,profile_picture_url}&access_token=${page.access_token}`
+      );
 
-    return Connection.findOneAndUpdate(
-      { platform: "instagram", platformUserId: ig.id },
-      {
-        platform: "instagram",
-        platformUserId: ig.id,
-        username: ig.username,
-        name: ig.name || ig.username,
-        avatarUrl: ig.profile_picture_url,
-        pageId: pageWithInstagram.id,
-        pageName: pageWithInstagram.name,
-        pageAccessToken: pageWithInstagram.access_token,
-        accessToken: tokenData.access_token,
-        connected: true,
-      },
-      { upsert: true, new: true }
-    );
+      const igData = await igResponse.json();
+      console.log("IG DATA:", JSON.stringify(igData, null, 2));
+
+      if (igData.instagram_business_account) {
+        const ig = igData.instagram_business_account;
+
+        return Connection.findOneAndUpdate(
+          { platform: "instagram", platformUserId: ig.id },
+          {
+            platform: "instagram",
+            platformUserId: ig.id,
+            username: ig.username,
+            name: ig.name || ig.username,
+            avatarUrl: ig.profile_picture_url,
+            pageId: page.id,
+            pageName: page.name,
+            pageAccessToken: page.access_token,
+            accessToken: tokenData.access_token,
+            connected: true,
+          },
+          { upsert: true, new: true }
+        );
+      }
+    }
+
+    throw new Error("Selected Facebook Page has no linked Instagram Business account.");
   }
 
   const profileResponse = await fetch(
-    `https://graph.facebook.com/me?fields=id,name&access_token=${tokenData.access_token}`
+    `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
   );
 
   const profile = await profileResponse.json();

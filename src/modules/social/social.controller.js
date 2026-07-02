@@ -15,6 +15,7 @@ exports.startOAuth = (req, res) => {
   }
 };
 
+// social.controller.js
 exports.oauthCallback = async (req, res) => {
   try {
     const { platform } = req.params;
@@ -36,7 +37,7 @@ exports.oauthCallback = async (req, res) => {
 
     return res.redirect(
       `${process.env.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(
-        "Instagram connection failed"
+        error.message
       )}`
     );
   }
