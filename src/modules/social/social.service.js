@@ -62,7 +62,7 @@ if (!tokenResponse.ok || !tokenData.access_token) {
   `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
 );
 
-const pagesData = await pagesResponse.json();
+
 
 console.log("=================================");
 console.log("PAGES RESPONSE");
