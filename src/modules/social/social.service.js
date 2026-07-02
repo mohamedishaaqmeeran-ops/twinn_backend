@@ -43,11 +43,13 @@ exports.handleCallback = async (platform, code) => {
     `&code=${code}`;
 
   const tokenResponse = await fetch(tokenUrl);
-  const tokenData = await tokenResponse.json();
+const tokenData = await tokenResponse.json();
 
-  if (!tokenData.access_token) {
-    throw new Error(tokenData.error?.message || "Access token failed");
-  }
+console.log("TOKEN DATA:", tokenData);
+
+if (!tokenResponse.ok || !tokenData.access_token) {
+  throw new Error(tokenData.error?.message || "Access token failed");
+}
 
   if (platform === "instagram") {
     const pagesResponse = await fetch(

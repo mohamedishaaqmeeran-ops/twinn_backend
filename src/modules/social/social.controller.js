@@ -21,7 +21,9 @@ exports.oauthCallback = async (req, res) => {
     const { code } = req.query;
 
     if (!code) {
-      return res.redirect(`${process.env.FRONTEND_URL}/app/connect?status=failed`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/app/connect?status=failed&message=No code received`
+      );
     }
 
     await socialService.handleCallback(platform, code);
@@ -30,12 +32,15 @@ exports.oauthCallback = async (req, res) => {
       `${process.env.FRONTEND_URL}/app/connect?status=connected&platform=${platform}`
     );
   } catch (error) {
+    console.log("OAuth callback error:", error.message);
+
     return res.redirect(
-      `${process.env.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(error.message)}`
+      `${process.env.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(
+        "Instagram connection failed"
+      )}`
     );
   }
 };
-
 exports.getConnections = async (req, res) => {
   try {
     const connections = await socialService.getConnections();
