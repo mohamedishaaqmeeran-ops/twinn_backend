@@ -24,7 +24,7 @@ if (platform === "instagram") {
     `${REDIRECT_BASE}/api/social/callback/instagram`
   )}&scope=${encodeURIComponent(
     "public_profile,pages_show_list,pages_read_engagement,instagram_basic"
-  )}&response_type=code`;
+  )}&response_type=code&auth_type=rerequest`;
 }
 
   throw new Error("Unsupported platform");
