@@ -16,9 +16,9 @@ exports.getOAuthURL = (platform) => {
   if (platform === "instagram") {
     return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&scope=${encodeURIComponent(
-      "public_profile,pages_show_list,pages_read_engagement,pages_manage_metadata,business_management,instagram_basic"
-    )}&response_type=code&auth_type=rerequest`;
+    )}&&scope=${encodeURIComponent(
+  "public_profile,pages_show_list,pages_read_engagement,business_management,instagram_basic"
+)}&response_type=code&auth_type=rerequest`;
   }
 
   if (platform === "facebook") {
