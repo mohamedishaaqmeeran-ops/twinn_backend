@@ -58,56 +58,66 @@ exports.handleCallback = async (platform, code) => {
   }
 
   if (platform === "instagram") {
-  const meResponse = await fetch(
-    `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
-  );
+  const pagesUrl =
+    `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`;
 
-  const meData = await meResponse.json();
-  console.log("LOGGED FACEBOOK USER:", JSON.stringify(meData, null, 2));
+  let pagesResponse = await fetch(pagesUrl);
+  let pagesData = await pagesResponse.json();
 
-  const pagesResponse = await fetch(
-      `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token&access_token=${tokenData.access_token}`
+  console.log("PAGES RESPONSE:", JSON.stringify(pagesData, null, 2));
+
+  let pages = pagesData.data || [];
+
+  // Business Manager fallback
+  if (pages.length === 0) {
+    const businessRes = await fetch(
+      `https://graph.facebook.com/v23.0/me/businesses?fields=id,name&access_token=${tokenData.access_token}`
     );
 
-    const pagesData = await pagesResponse.json();
-    console.log("PAGES RESPONSE:", JSON.stringify(pagesData, null, 2));
+    const businessData = await businessRes.json();
+    console.log("BUSINESSES:", JSON.stringify(businessData, null, 2));
 
-    if (!pagesData.data || pagesData.data.length === 0) {
-      throw new Error("No Facebook Page permission received. Reconnect and select your Page.");
-    }
-
-    for (const page of pagesData.data) {
-      const igResponse = await fetch(
-        `https://graph.facebook.com/v23.0/${page.id}?fields=instagram_business_account{id,username,name,profile_picture_url}&access_token=${page.access_token}`
+    for (const business of businessData.data || []) {
+      const ownedPagesRes = await fetch(
+        `https://graph.facebook.com/v23.0/${business.id}/owned_pages?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
       );
 
-      const igData = await igResponse.json();
-      console.log("IG DATA:", JSON.stringify(igData, null, 2));
+      const ownedPagesData = await ownedPagesRes.json();
+      console.log("OWNED PAGES:", JSON.stringify(ownedPagesData, null, 2));
 
-      if (igData.instagram_business_account) {
-        const ig = igData.instagram_business_account;
-
-        return Connection.findOneAndUpdate(
-          { platform: "instagram", platformUserId: ig.id },
-          {
-            platform: "instagram",
-            platformUserId: ig.id,
-            username: ig.username,
-            name: ig.name || ig.username,
-            avatarUrl: ig.profile_picture_url,
-            pageId: page.id,
-            pageName: page.name,
-            pageAccessToken: page.access_token,
-            accessToken: tokenData.access_token,
-            connected: true,
-          },
-          { upsert: true, new: true }
-        );
-      }
+      pages.push(...(ownedPagesData.data || []));
     }
-
-    throw new Error("Selected Facebook Page has no linked Instagram Business account.");
   }
+
+  if (pages.length === 0) {
+    throw new Error("No Facebook Page found. Add business_management and reconnect.");
+  }
+
+  const pageWithInstagram = pages.find((page) => page.instagram_business_account);
+
+  if (!pageWithInstagram) {
+    throw new Error("Selected Page has no linked Instagram account.");
+  }
+
+  const ig = pageWithInstagram.instagram_business_account;
+
+  return Connection.findOneAndUpdate(
+    { platform: "instagram", platformUserId: ig.id },
+    {
+      platform: "instagram",
+      platformUserId: ig.id,
+      username: ig.username,
+      name: ig.name || ig.username,
+      avatarUrl: ig.profile_picture_url,
+      pageId: pageWithInstagram.id,
+      pageName: pageWithInstagram.name,
+      pageAccessToken: pageWithInstagram.access_token,
+      accessToken: tokenData.access_token,
+      connected: true,
+    },
+    { upsert: true, new: true }
+  );
+}
 
   const profileResponse = await fetch(
     `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
