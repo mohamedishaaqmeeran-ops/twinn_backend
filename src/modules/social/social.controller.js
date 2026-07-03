@@ -21,11 +21,17 @@ exports.oauthCallback = async (req, res) => {
     const { platform } = req.params;
     const { code } = req.query;
 
-    if (!code) {
-      return res.redirect(
-        `${process.env.FRONTEND_URL}/app/connect?status=failed&message=No code received`
-      );
-    }
+ if (!code) {
+  console.log("META CALLBACK QUERY:", req.query);
+
+  return res.redirect(
+    `${process.env.FRONTEND_URL}/app/connect?status=failed&message=${encodeURIComponent(
+      req.query.error_message ||
+      req.query.error_description ||
+      "No code received"
+    )}`
+  );
+}
 
     await socialService.handleCallback(platform, code);
 
