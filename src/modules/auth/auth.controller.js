@@ -5,46 +5,34 @@ const cookieOptions = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-  maxAge: 24 * 60 * 60 * 1000
+  maxAge: 24 * 60 * 60 * 1000,
 };
 
 exports.register = async (req, res) => {
-  console.log("===== REGISTER API HIT =====");
-  console.log("BODY:", req.body);
-
   try {
-    const { name, email, password, mobileNumber } = req.body;
+    const { email, password } = req.body;
 
-    if (!name || !email || !password || !mobileNumber) {
+    if (!email || !password) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, mobile number and password are required"
+        message: "Email and password are required",
       });
     }
 
-    const { user, systemToken } = await authService.signupWithEmail(
-      email,
-      password,
-      name,
-      mobileNumber
-    );
-
-    console.log("USER SAVED:", user);
-
-    res.cookie("token", systemToken, cookieOptions);
+    const { user } = await authService.signupWithEmail(email, password);
 
     res.status(201).json({
       success: true,
-      message: "Registered successfully",
-      token: systemToken,
-      user
+      message:
+        "Registered successfully. Please verify your email before login.",
+      user,
     });
   } catch (error) {
     console.log("REGISTER ERROR:", error.message);
 
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -64,25 +52,24 @@ exports.login = async (req, res) => {
       success: true,
       message: "Login successful",
       token: systemToken,
-      user
+      user,
     });
   } catch (error) {
     res.status(401).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
 exports.googleLogin = async (req, res) => {
-  console.log("GOOGLE BODY:", req.body);
-
   try {
     const { credential } = req.body;
+
     if (!credential) {
       return res.status(400).json({
         success: false,
-        message: "Google credential is required"
+        message: "Google credential is required",
       });
     }
 
@@ -95,12 +82,48 @@ exports.googleLogin = async (req, res) => {
       success: true,
       message: "Google login successful",
       token: systemToken,
-      user
+      user,
     });
   } catch (error) {
     res.status(401).json({
       success: false,
-      message: "Google login failed"
+      message: "Google login failed",
+    });
+  }
+};
+
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const result = await authService.verifyEmail(token);
+
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+exports.resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    const result = await authService.resendVerificationEmail(email);
+
+    res.json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -108,7 +131,7 @@ exports.googleLogin = async (req, res) => {
 exports.me = async (req, res) => {
   res.json({
     success: true,
-    user: req.user
+    user: req.user,
   });
 };
 
@@ -117,7 +140,7 @@ exports.logout = async (req, res) => {
 
   res.json({
     success: true,
-    message: "Logged out successfully"
+    message: "Logged out successfully",
   });
 };
 
@@ -129,12 +152,12 @@ exports.forgotPassword = async (req, res) => {
 
     res.json({
       success: true,
-      ...result
+      ...result,
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -147,30 +170,31 @@ exports.resetPassword = async (req, res) => {
 
     res.json({
       success: true,
-      ...result
+      ...result,
     });
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
 
-
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find().select("-passwordHash");
+    const users = await User.find().select(
+      "-passwordHash -verificationToken -resetToken"
+    );
 
     res.status(200).json({
       success: true,
       count: users.length,
-      users
+      users,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
