@@ -5,7 +5,9 @@ const authRoutes = require("../modules/auth/auth.routes");
 const socialRoutes = require("../modules/social/social.routes");
 const waitlistRoutes = require("../modules/waitlist/waitlist.routes");
 const liveRoutes = require("../modules/live/live.routes");
+const paymentRoutes = require("../modules/payment/payment.routes");
 
+router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
 router.use("/social", socialRoutes);
 router.use("/waitlist", waitlistRoutes);
