@@ -135,7 +135,7 @@ exports.me = async (req, res) => {
   });
 };
 
-export const logout = (req, res) => {
+exports.logout = (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
     secure: true,
