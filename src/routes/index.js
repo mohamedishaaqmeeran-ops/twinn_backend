@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-
+const productRoutes = require("../modules/products/product.routes");
 const authRoutes = require("../modules/auth/auth.routes");
 const socialRoutes = require("../modules/social/social.routes");
 const waitlistRoutes = require("../modules/waitlist/waitlist.routes");
@@ -9,6 +9,7 @@ const paymentRoutes = require("../modules/payment/payment.routes");
 
 router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
+router.use("/products", productRoutes);
 router.use("/social", socialRoutes);
 router.use("/waitlist", waitlistRoutes);
 router.use("/live", liveRoutes);
