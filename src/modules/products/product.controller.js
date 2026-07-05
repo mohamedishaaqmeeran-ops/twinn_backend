@@ -92,9 +92,11 @@ exports.update = async (req, res) => {
 
     const body = {
       ...req.body,
-      ...(req.body.price && { price: Number(req.body.price) }),
-      ...(req.body.salePrice && { salePrice: Number(req.body.salePrice) }),
-      ...(req.body.stock && { stock: Number(req.body.stock) }),
+      ...(req.body.price !== undefined && { price: Number(req.body.price) }),
+      ...(req.body.salePrice !== undefined && {
+        salePrice: Number(req.body.salePrice || 0),
+      }),
+      ...(req.body.stock !== undefined && { stock: Number(req.body.stock || 0) }),
       ...(imageUrls.length > 0 && { images: imageUrls }),
     };
 
@@ -106,7 +108,7 @@ exports.update = async (req, res) => {
     if (error) {
       return res.status(400).json({
         success: false,
-        message: error.details.map((item) => item.message).join(", "),
+        message: error.details.map((e) => e.message).join(", "),
       });
     }
 
@@ -115,6 +117,13 @@ exports.update = async (req, res) => {
       req.user.id,
       value
     );
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
 
     res.json({
       success: true,
@@ -143,7 +152,7 @@ exports.remove = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    res.json({
       success: true,
       message: "Product deleted successfully",
     });
