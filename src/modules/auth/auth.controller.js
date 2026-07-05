@@ -135,10 +135,15 @@ exports.me = async (req, res) => {
   });
 };
 
-exports.logout = async (req, res) => {
-  res.clearCookie("token");
+export const logout = (req, res) => {
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/",
+  });
 
-  res.json({
+  return res.status(200).json({
     success: true,
     message: "Logged out successfully",
   });
