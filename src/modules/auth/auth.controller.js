@@ -1,5 +1,8 @@
 const authService = require("./auth.service");
 const User = require("../../models/User");
+const Product = require("../../models/Product");
+const Twin = require("../../models/Twin");
+
 
 const cookieOptions = {
   httpOnly: true,
@@ -129,10 +132,29 @@ exports.resendVerification = async (req, res) => {
 };
 
 exports.me = async (req, res) => {
-  res.json({
-    success: true,
-    user: req.user,
-  });
+  try {
+    const products = await Product.find({
+      userId: req.user.id,
+    }).sort({ createdAt: -1 });
+
+    const twins = await Twin.find({
+      userId: req.user.id,
+    }).sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      user: {
+        ...req.user.toObject(),
+        products,
+        twins,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: "Unable to fetch user data",
+    });
+  }
 };
 
 exports.logout = (req, res) => {

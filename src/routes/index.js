@@ -6,6 +6,8 @@ const socialRoutes = require("../modules/social/social.routes");
 const waitlistRoutes = require("../modules/waitlist/waitlist.routes");
 const liveRoutes = require("../modules/live/live.routes");
 const paymentRoutes = require("../modules/payment/payment.routes");
+const twinRoutes = require("../modules/twins/twin.routes");
+
 
 router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
@@ -13,5 +15,6 @@ router.use("/products", productRoutes);
 router.use("/social", socialRoutes);
 router.use("/waitlist", waitlistRoutes);
 router.use("/live", liveRoutes);
+router.use("/twins", twinRoutes);
 
 module.exports = router;
