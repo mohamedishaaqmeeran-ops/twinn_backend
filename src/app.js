@@ -3,6 +3,7 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 
 const routes = require("./routes");
+const paymentController = require("./modules/payment/payment.controller");
 
 const app = express();
 
@@ -14,10 +15,17 @@ app.use(
       "https://twinn.live",
       "https://www.twinn.live",
       "https://ai-twin-63zh.vercel.app",
-      "https://ai-twin-iota.vercel.app"
+      "https://ai-twin-iota.vercel.app",
     ],
-    credentials: true
+    credentials: true,
   })
+);
+
+// Stripe webhook MUST be before express.json()
+app.post(
+  "/api/payments/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  paymentController.stripeWebhook
 );
 
 app.use(express.json());
@@ -28,6 +36,5 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api", routes);
-
 
 module.exports = app;

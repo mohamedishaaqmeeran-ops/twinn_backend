@@ -16,9 +16,4 @@ router.post(
   paymentController.verifyRazorpay
 );
 
-router.post(
-  "/stripe/webhook",
-  paymentController.stripeWebhook
-);
-
 module.exports = router;
