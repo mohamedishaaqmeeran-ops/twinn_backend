@@ -4,37 +4,36 @@ const connectionSchema = new mongoose.Schema(
   {
     userId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "User"
+      ref: "User",
+      required: true,
     },
 
     platform: {
       type: String,
       enum: ["facebook", "instagram", "youtube", "tiktok"],
-      required: true
+      required: true,
     },
 
-    platformUserId: {
-      type: String
-    },
+    platformUserId: String,
+    name: String,
+    username: String,
+    avatarUrl: String,
 
-    name: {
-      type: String
-    },
+    pageId: String,
+    pageName: String,
+    pageAccessToken: String,
 
-    accessToken: {
-      type: String
-    },
-
-    refreshToken: {
-      type: String
-    },
+    accessToken: String,
+    refreshToken: String,
 
     connected: {
       type: Boolean,
-      default: true
-    }
+      default: true,
+    },
   },
   { timestamps: true }
 );
+
+connectionSchema.index({ userId: 1, platform: 1 }, { unique: true });
 
 module.exports = mongoose.model("Connection", connectionSchema);

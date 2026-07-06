@@ -1,9 +1,10 @@
 const fetch = require("node-fetch");
 const Connection = require("../../models/Connection");
 
-const REDIRECT_BASE = process.env.REDIRECT_BASE || "https://twinn-backend.onrender.com";
+const REDIRECT_BASE =
+  process.env.REDIRECT_BASE || "https://twinn-backend.onrender.com";
 
-exports.getOAuthURL = (platform) => {
+exports.getOAuthURL = (platform, state) => {
   const appId =
     platform === "instagram"
       ? process.env.INSTAGRAM_APP_ID
@@ -16,21 +17,25 @@ exports.getOAuthURL = (platform) => {
   if (platform === "instagram") {
     return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&&scope=${encodeURIComponent(
-  "public_profile,pages_show_list,pages_read_engagement,business_management,instagram_basic"
-)}&response_type=code&auth_type=rerequest`;
+    )}&scope=${encodeURIComponent(
+      "public_profile,pages_show_list,pages_read_engagement,business_management,instagram_basic"
+    )}&response_type=code&auth_type=rerequest&state=${encodeURIComponent(
+      state
+    )}`;
   }
 
   if (platform === "facebook") {
     return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&scope=public_profile&response_type=code`;
+    )}&scope=public_profile&response_type=code&state=${encodeURIComponent(
+      state
+    )}`;
   }
 
   throw new Error("Unsupported platform");
 };
 
-exports.handleCallback = async (platform, code) => {
+exports.handleCallback = async (platform, code, userId) => {
   const appId =
     platform === "instagram"
       ? process.env.INSTAGRAM_APP_ID
@@ -58,66 +63,51 @@ exports.handleCallback = async (platform, code) => {
   }
 
   if (platform === "instagram") {
-  const pagesUrl =
-    `https://graph.facebook.com/v23.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`;
+    const pagesUrl =
+      `https://graph.facebook.com/v23.0/me/accounts` +
+      `?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}` +
+      `&access_token=${tokenData.access_token}`;
 
-  let pagesResponse = await fetch(pagesUrl);
-  let pagesData = await pagesResponse.json();
+    const pagesResponse = await fetch(pagesUrl);
+    const pagesData = await pagesResponse.json();
 
-  console.log("PAGES RESPONSE:", JSON.stringify(pagesData, null, 2));
+    const pages = pagesData.data || [];
 
-  let pages = pagesData.data || [];
+    if (pages.length === 0) {
+      throw new Error("No Facebook Page found for this user.");
+    }
 
-  // Business Manager fallback
-  if (pages.length === 0) {
-    const businessRes = await fetch(
-      `https://graph.facebook.com/v23.0/me/businesses?fields=id,name&access_token=${tokenData.access_token}`
+    const pageWithInstagram = pages.find(
+      (page) => page.instagram_business_account
     );
 
-    const businessData = await businessRes.json();
-    console.log("BUSINESSES:", JSON.stringify(businessData, null, 2));
-
-    for (const business of businessData.data || []) {
-      const ownedPagesRes = await fetch(
-        `https://graph.facebook.com/v23.0/${business.id}/owned_pages?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}&access_token=${tokenData.access_token}`
-      );
-
-      const ownedPagesData = await ownedPagesRes.json();
-      console.log("OWNED PAGES:", JSON.stringify(ownedPagesData, null, 2));
-
-      pages.push(...(ownedPagesData.data || []));
+    if (!pageWithInstagram) {
+      throw new Error("This Facebook Page has no linked Instagram account.");
     }
+
+    const ig = pageWithInstagram.instagram_business_account;
+
+    return Connection.findOneAndUpdate(
+      {
+        userId,
+        platform: "instagram",
+      },
+      {
+        userId,
+        platform: "instagram",
+        platformUserId: ig.id,
+        username: ig.username,
+        name: ig.name || ig.username,
+        avatarUrl: ig.profile_picture_url,
+        pageId: pageWithInstagram.id,
+        pageName: pageWithInstagram.name,
+        pageAccessToken: pageWithInstagram.access_token,
+        accessToken: tokenData.access_token,
+        connected: true,
+      },
+      { upsert: true, new: true }
+    );
   }
-
-  if (pages.length === 0) {
-    throw new Error("No Facebook Page found. Add business_management and reconnect.");
-  }
-
-  const pageWithInstagram = pages.find((page) => page.instagram_business_account);
-
-  if (!pageWithInstagram) {
-    throw new Error("Selected Page has no linked Instagram account.");
-  }
-
-  const ig = pageWithInstagram.instagram_business_account;
-
-  return Connection.findOneAndUpdate(
-    { platform: "instagram", platformUserId: ig.id },
-    {
-      platform: "instagram",
-      platformUserId: ig.id,
-      username: ig.username,
-      name: ig.name || ig.username,
-      avatarUrl: ig.profile_picture_url,
-      pageId: pageWithInstagram.id,
-      pageName: pageWithInstagram.name,
-      pageAccessToken: pageWithInstagram.access_token,
-      accessToken: tokenData.access_token,
-      connected: true,
-    },
-    { upsert: true, new: true }
-  );
-}
 
   const profileResponse = await fetch(
     `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
@@ -126,8 +116,12 @@ exports.handleCallback = async (platform, code) => {
   const profile = await profileResponse.json();
 
   return Connection.findOneAndUpdate(
-    { platform: "facebook", platformUserId: profile.id },
     {
+      userId,
+      platform: "facebook",
+    },
+    {
+      userId,
       platform: "facebook",
       platformUserId: profile.id,
       name: profile.name,
@@ -138,10 +132,10 @@ exports.handleCallback = async (platform, code) => {
   );
 };
 
-exports.getConnections = async () => {
-  return Connection.find().sort({ createdAt: -1 });
+exports.getConnections = async (userId) => {
+  return Connection.find({ userId }).sort({ createdAt: -1 });
 };
 
-exports.deleteConnection = async (platform) => {
-  return Connection.findOneAndDelete({ platform });
+exports.deleteConnection = async (userId, platform) => {
+  return Connection.findOneAndDelete({ userId, platform });
 };
