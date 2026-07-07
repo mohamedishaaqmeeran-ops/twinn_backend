@@ -41,7 +41,6 @@ const facebookScope = [
   "pages_read_engagement",
   "pages_manage_posts",
   "pages_manage_metadata",
-  "publish_video",
 ].join(",");
 
   const scope = platform === "instagram" ? instagramScope : facebookScope;
