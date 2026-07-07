@@ -35,14 +35,14 @@ exports.getOAuthURL = (platform, state) => {
     "instagram_basic",
   ].join(",");
 
-  const facebookScope = [
-    "public_profile",
-    "pages_show_list",
-    "pages_read_engagement",
-    "pages_manage_posts",
-    "pages_manage_metadata",
-    "publish_video",
-  ].join(",");
+const facebookScope = [
+  "public_profile",
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_posts",
+  "pages_manage_metadata",
+  "publish_video",
+].join(",");
 
   const scope = platform === "instagram" ? instagramScope : facebookScope;
 
@@ -95,28 +95,48 @@ exports.handleCallback = async (platform, code, userId) => {
     throw new Error("No Facebook Page found for this user.");
   }
 
-  if (platform === "facebook") {
-    const page = pages[0];
+ if (platform === "facebook") {
+  const pagesUrl =
+    `https://graph.facebook.com/v23.0/me/accounts` +
+    `?fields=id,name,access_token` +
+    `&access_token=${tokenData.access_token}`;
 
-    return Connection.findOneAndUpdate(
-      {
-        userId,
-        platform: "facebook",
-      },
-      {
-        userId,
-        platform: "facebook",
-        platformUserId: page.id,
-        name: page.name,
-        pageId: page.id,
-        pageName: page.name,
-        pageAccessToken: page.access_token,
-        accessToken: tokenData.access_token,
-        connected: true,
-      },
-      { upsert: true, new: true }
+  const pagesResponse = await fetch(pagesUrl);
+  const pagesData = await pagesResponse.json();
+
+  if (!pagesResponse.ok) {
+    throw new Error(
+      pagesData.error?.message || "Unable to fetch Facebook Pages."
     );
   }
+
+  const page = pagesData.data?.[0];
+
+  if (!page) {
+    throw new Error(
+      "No Facebook Page found. You must be admin of a Facebook Page."
+    );
+  }
+
+  return Connection.findOneAndUpdate(
+    {
+      userId,
+      platform: "facebook",
+    },
+    {
+      userId,
+      platform: "facebook",
+      platformUserId: page.id,
+      name: page.name,
+      pageId: page.id,
+      pageName: page.name,
+      pageAccessToken: page.access_token,
+      accessToken: tokenData.access_token,
+      connected: true,
+    },
+    { upsert: true, new: true }
+  );
+}
 
   if (platform === "instagram") {
     const pageWithInstagram = pages.find(
