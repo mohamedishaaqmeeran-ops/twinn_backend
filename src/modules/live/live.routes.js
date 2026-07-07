@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const liveController = require("./live.controller");
-const authMiddleware = require("../../middlewares/auth.middleware");
+const authMiddleware = require("../../middleware/auth.middleware");
 
 router.post("/upload-video", authMiddleware, liveController.uploadVideo);
 
