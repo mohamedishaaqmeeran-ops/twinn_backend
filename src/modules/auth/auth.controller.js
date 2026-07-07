@@ -67,35 +67,30 @@ exports.login = async (req, res) => {
 
 exports.googleLogin = async (req, res) => {
   try {
-    const { credential, accessToken } = req.body;
+    const { credential } = req.body;
 
-    let result;
-
-    if (credential) {
-      result = await authService.verifyAndAuthenticateGoogleUser(credential);
-    } else if (accessToken) {
-      result = await authService.verifyGoogleAccessToken(accessToken);
-    } else {
+    if (!credential) {
       return res.status(400).json({
         success: false,
-        message: "Google credential or accessToken is required",
+        message: "Google credential is required",
       });
     }
 
-    res.cookie("token", result.systemToken, cookieOptions);
+    const { user, systemToken } =
+      await authService.verifyAndAuthenticateGoogleUser(credential);
+
+    res.cookie("token", systemToken, cookieOptions);
 
     res.json({
       success: true,
       message: "Google login successful",
-      token: result.systemToken,
-      user: result.user,
+      token: systemToken,
+      user,
     });
   } catch (error) {
-    console.log("GOOGLE LOGIN ERROR:", error.message);
-
     res.status(401).json({
       success: false,
-      message: error.message || "Google login failed",
+      message: "Google login failed",
     });
   }
 };
