@@ -1,55 +1,70 @@
+// modules/social/social.service.js
+
 const fetch = require("node-fetch");
 const Connection = require("../../models/Connection");
 
 const REDIRECT_BASE =
   process.env.REDIRECT_BASE || "https://twinn-backend.onrender.com";
 
+const metaVersion = "v23.0";
+
+const getMetaAppId = (platform) => {
+  if (platform === "instagram") return process.env.INSTAGRAM_APP_ID;
+  if (platform === "facebook") return process.env.FACEBOOK_APP_ID;
+  throw new Error("Unsupported platform");
+};
+
+const getMetaAppSecret = (platform) => {
+  if (platform === "instagram") return process.env.INSTAGRAM_APP_SECRET;
+  if (platform === "facebook") return process.env.FACEBOOK_APP_SECRET;
+  throw new Error("Unsupported platform");
+};
+
 exports.getOAuthURL = (platform, state) => {
-  const appId =
-    platform === "instagram"
-      ? process.env.INSTAGRAM_APP_ID
-      : process.env.FACEBOOK_APP_ID;
+  const appId = getMetaAppId(platform);
 
   if (!appId) throw new Error("Meta App ID missing in .env");
 
   const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
 
-  if (platform === "instagram") {
-    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}&scope=${encodeURIComponent(
-      "public_profile,pages_show_list,pages_read_engagement,business_management,instagram_basic"
-    )}&response_type=code&auth_type=rerequest&state=${encodeURIComponent(
-      state
-    )}`;
-  }
+  const instagramScope = [
+    "public_profile",
+    "pages_show_list",
+    "pages_read_engagement",
+    "business_management",
+    "instagram_basic",
+  ].join(",");
 
-  if (platform === "facebook") {
-    return `https://www.facebook.com/v23.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}&scope=public_profile&response_type=code&state=${encodeURIComponent(
-      state
-    )}`;
-  }
+  const facebookScope = [
+    "public_profile",
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_manage_posts",
+    "pages_manage_metadata",
+    "publish_video",
+  ].join(",");
 
-  throw new Error("Unsupported platform");
+  const scope = platform === "instagram" ? instagramScope : facebookScope;
+
+  return `https://www.facebook.com/${metaVersion}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
+    redirectUri
+  )}&scope=${encodeURIComponent(scope)}&response_type=code&auth_type=rerequest&state=${encodeURIComponent(
+    state
+  )}`;
 };
 
 exports.handleCallback = async (platform, code, userId) => {
-  const appId =
-    platform === "instagram"
-      ? process.env.INSTAGRAM_APP_ID
-      : process.env.FACEBOOK_APP_ID;
+  if (!userId) {
+    throw new Error("User ID missing. Please login and connect again.");
+  }
 
-  const appSecret =
-    platform === "instagram"
-      ? process.env.INSTAGRAM_APP_SECRET
-      : process.env.FACEBOOK_APP_SECRET;
+  const appId = getMetaAppId(platform);
+  const appSecret = getMetaAppSecret(platform);
 
   const redirectUri = `${REDIRECT_BASE}/api/social/callback/${platform}`;
 
   const tokenUrl =
-    `https://graph.facebook.com/v23.0/oauth/access_token` +
+    `https://graph.facebook.com/${metaVersion}/oauth/access_token` +
     `?client_id=${appId}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&client_secret=${appSecret}` +
@@ -62,21 +77,48 @@ exports.handleCallback = async (platform, code, userId) => {
     throw new Error(tokenData.error?.message || "Access token failed");
   }
 
+  const pagesUrl =
+    `https://graph.facebook.com/${metaVersion}/me/accounts` +
+    `?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}` +
+    `&access_token=${tokenData.access_token}`;
+
+  const pagesResponse = await fetch(pagesUrl);
+  const pagesData = await pagesResponse.json();
+
+  if (!pagesResponse.ok) {
+    throw new Error(pagesData.error?.message || "Unable to fetch Facebook pages.");
+  }
+
+  const pages = pagesData.data || [];
+
+  if (pages.length === 0) {
+    throw new Error("No Facebook Page found for this user.");
+  }
+
+  if (platform === "facebook") {
+    const page = pages[0];
+
+    return Connection.findOneAndUpdate(
+      {
+        userId,
+        platform: "facebook",
+      },
+      {
+        userId,
+        platform: "facebook",
+        platformUserId: page.id,
+        name: page.name,
+        pageId: page.id,
+        pageName: page.name,
+        pageAccessToken: page.access_token,
+        accessToken: tokenData.access_token,
+        connected: true,
+      },
+      { upsert: true, new: true }
+    );
+  }
+
   if (platform === "instagram") {
-    const pagesUrl =
-      `https://graph.facebook.com/v23.0/me/accounts` +
-      `?fields=id,name,access_token,instagram_business_account{id,username,name,profile_picture_url}` +
-      `&access_token=${tokenData.access_token}`;
-
-    const pagesResponse = await fetch(pagesUrl);
-    const pagesData = await pagesResponse.json();
-
-    const pages = pagesData.data || [];
-
-    if (pages.length === 0) {
-      throw new Error("No Facebook Page found for this user.");
-    }
-
     const pageWithInstagram = pages.find(
       (page) => page.instagram_business_account
     );
@@ -109,27 +151,7 @@ exports.handleCallback = async (platform, code, userId) => {
     );
   }
 
-  const profileResponse = await fetch(
-    `https://graph.facebook.com/v23.0/me?fields=id,name&access_token=${tokenData.access_token}`
-  );
-
-  const profile = await profileResponse.json();
-
-  return Connection.findOneAndUpdate(
-    {
-      userId,
-      platform: "facebook",
-    },
-    {
-      userId,
-      platform: "facebook",
-      platformUserId: profile.id,
-      name: profile.name,
-      accessToken: tokenData.access_token,
-      connected: true,
-    },
-    { upsert: true, new: true }
-  );
+  throw new Error("Unsupported platform");
 };
 
 exports.getConnections = async (userId) => {

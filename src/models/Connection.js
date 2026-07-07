@@ -15,8 +15,8 @@ const connectionSchema = new mongoose.Schema(
     },
 
     platformUserId: String,
-    name: String,
     username: String,
+    name: String,
     avatarUrl: String,
 
     pageId: String,
