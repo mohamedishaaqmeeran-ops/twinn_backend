@@ -75,7 +75,9 @@ class AuthService {
 
     if (existingUser) {
       if (existingUser.googleId) {
-        throw new Error("This email is linked to Google. Please login with Google.");
+        throw new Error(
+          "This email is linked to Google. Please login with Google."
+        );
       }
 
       throw new Error("Email already registered.");
@@ -164,7 +166,9 @@ class AuthService {
     }
 
     user.verificationToken = crypto.randomBytes(32).toString("hex");
-    user.verificationTokenExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    user.verificationTokenExpiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    );
 
     await user.save();
     await this.sendVerificationEmail(user);
@@ -184,6 +188,57 @@ class AuthService {
 
     const googleId = payload.sub;
     const email = payload.email?.trim().toLowerCase();
+
+    if (!email) {
+      throw new Error("Google email not found.");
+    }
+
+    let user = await User.findOne({
+      $or: [{ googleId }, { email }],
+    });
+
+    if (!user) {
+      user = await User.create({
+        googleId,
+        email,
+        avatarUrl: payload.picture,
+        role: "user",
+        plan: "free",
+        isVerified: true,
+        lastLogin: new Date(),
+      });
+    } else {
+      user.googleId = user.googleId || googleId;
+      user.avatarUrl = payload.picture || user.avatarUrl;
+      user.isVerified = true;
+      user.lastLogin = new Date();
+      await user.save();
+    }
+
+    return {
+      user: this.safeUser(user),
+      systemToken: this.generateToken(user),
+    };
+  }
+
+  async verifyGoogleAccessToken(accessToken) {
+    const response = await fetch(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    const payload = await response.json();
+
+    if (!response.ok || !payload.email) {
+      throw new Error("Invalid Google access token.");
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email.trim().toLowerCase();
 
     let user = await User.findOne({
       $or: [{ googleId }, { email }],
