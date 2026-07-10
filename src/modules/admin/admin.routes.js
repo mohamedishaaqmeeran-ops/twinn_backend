@@ -4,7 +4,7 @@ const router = express.Router();
 const adminController = require("./admin.controller");
 
 const { protect } = require("../../middleware/auth.middleware");
-const requireAdmin = require("../../middleware/admin.middleware");
+const { requireAdmin } = require("../../middleware/admin.middleware");
 
 router.get(
   "/users",
