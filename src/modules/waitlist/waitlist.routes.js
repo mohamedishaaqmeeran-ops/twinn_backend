@@ -1,14 +1,10 @@
 const express = require("express");
-
 const router = express.Router();
 
 const waitlistController = require("./waitlist.controller");
-const {
-  protect,
-} = require("../../middleware/auth.middleware");
-const {
-  requireAdmin,
-} = require("../../middleware/admin.middleware");
+
+const { protect } = require("../../middleware/auth.middleware");
+const { requireAdmin } = require("../../middleware/admin.middleware");
 
 /*
 |--------------------------------------------------------------------------
@@ -16,15 +12,9 @@ const {
 |--------------------------------------------------------------------------
 */
 
-router.post(
-  "/",
-  waitlistController.createWaitlist
-);
+router.post("/", waitlistController.createWaitlist);
 
-router.get(
-  "/count",
-  waitlistController.getWaitlistCount
-);
+router.get("/count", waitlistController.getWaitlistCount);
 
 /*
 |--------------------------------------------------------------------------
