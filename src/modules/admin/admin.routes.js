@@ -1,54 +1,37 @@
 const express = require("express");
 const router = express.Router();
 
-const controller = require("./admin.controller");
+const adminController = require("./admin.controller");
 
-const auth = require("../auth/auth.middleware");
-const admin = require("../auth/admin.middleware");
+const { protect } = require("../../middleware/auth.middleware");
+const requireAdmin = require("../../middleware/admin.middleware");
 
-// users
 router.get(
   "/users",
-  auth,
-  admin,
-  controller.getUsers
+  protect,
+  requireAdmin,
+  adminController.getUsers
 );
 
-router.put(
-  "/users/:id/block",
-  auth,
-  admin,
-  controller.blockUser
+router.patch(
+  "/users/:id/status",
+  protect,
+  requireAdmin,
+  adminController.toggleUserStatus
 );
 
-router.put(
+router.patch(
   "/users/:id/plan",
-  auth,
-  admin,
-  controller.changePlan
+  protect,
+  requireAdmin,
+  adminController.updateUserPlan
 );
 
 router.delete(
   "/users/:id",
-  auth,
-  admin,
-  controller.deleteUser
-);
-
-// waitlist
-
-router.get(
-  "/waitlist",
-  auth,
-  admin,
-  controller.getWaitlist
-);
-
-router.delete(
-  "/waitlist/:id",
-  auth,
-  admin,
-  controller.deleteWaitlist
+  protect,
+  requireAdmin,
+  adminController.deleteUser
 );
 
 module.exports = router;
