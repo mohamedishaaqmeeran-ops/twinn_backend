@@ -1,11 +1,36 @@
 const express = require("express");
+
 const router = express.Router();
 
 const waitlistController = require("./waitlist.controller");
-const { protect } = require("../../middleware/auth.middleware");
-const requireAdmin = require("../../middleware/admin.middleware");
+const {
+  protect,
+} = require("../../middleware/auth.middleware");
+const {
+  requireAdmin,
+} = require("../../middleware/admin.middleware");
 
-router.post("/", waitlistController.createWaitlist);
+/*
+|--------------------------------------------------------------------------
+| Public routes
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  "/",
+  waitlistController.createWaitlist
+);
+
+router.get(
+  "/count",
+  waitlistController.getWaitlistCount
+);
+
+/*
+|--------------------------------------------------------------------------
+| Admin routes
+|--------------------------------------------------------------------------
+*/
 
 router.get(
   "/",
@@ -15,8 +40,17 @@ router.get(
 );
 
 router.get(
-  "/count",
-  waitlistController.getWaitlistCount
+  "/:id",
+  protect,
+  requireAdmin,
+  waitlistController.getWaitlistUser
+);
+
+router.patch(
+  "/:id",
+  protect,
+  requireAdmin,
+  waitlistController.updateWaitlistUser
 );
 
 router.delete(
