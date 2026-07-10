@@ -10,30 +10,9 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    passwordHash: {
-      type: String,
-    },
-
-    googleId: {
-      type: String,
-    },
-
-    avatarUrl: {
-      type: String,
-    },
-
-    isVerified: {
-      type: Boolean,
-      default: false,
-    },
-
-    verificationToken: {
-      type: String,
-    },
-
-    verificationTokenExpiresAt: {
-      type: Date,
-    },
+    passwordHash: String,
+    googleId: String,
+    avatarUrl: String,
 
     role: {
       type: String,
@@ -43,23 +22,35 @@ const userSchema = new mongoose.Schema(
 
     plan: {
       type: String,
-      enum: ["free", "pro"],
+      enum: ["free", "pro", "business"],
       default: "free",
     },
 
-    resetToken: {
-      type: String,
+    isVerified: {
+      type: Boolean,
+      default: false,
     },
 
-    resetTokenExpiresAt: {
-      type: Date,
+    credits: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
 
-    lastLogin: {
-      type: Date,
-    },
+    unlockedAvatars: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "MarketplaceAvatar",
+      },
+    ],
+
+    verificationToken: String,
+    verificationTokenExpiresAt: Date,
+    resetToken: String,
+    resetTokenExpiresAt: Date,
+    lastLogin: Date,
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("User", userSchema, "users");
+module.exports = mongoose.model("User", userSchema);

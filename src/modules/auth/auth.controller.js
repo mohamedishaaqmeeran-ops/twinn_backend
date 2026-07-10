@@ -141,15 +141,24 @@ exports.me = async (req, res) => {
       userId: req.user.id,
     }).sort({ createdAt: -1 });
 
+    const user = await User.findById(req.user.id)
+      .select(
+        "-passwordHash -verificationToken -resetToken"
+      )
+      .populate(
+        "unlockedAvatars",
+        "name image description category credits voice previewVideo"
+      );
+
     res.json({
       success: true,
       user: {
-        ...req.user.toObject(),
+        ...user.toObject(),
         products,
         twins,
       },
     });
-  } catch (err) {
+  } catch (error) {
     res.status(500).json({
       success: false,
       message: "Unable to fetch user data",
