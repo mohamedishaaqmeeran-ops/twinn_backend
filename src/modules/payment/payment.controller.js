@@ -40,32 +40,60 @@ const getCountryFromIp = async (ip) => {
   }
 };
 
-const getPrice = (plan, country) => {
-  if (country === "IN") {
-    if (plan === "pro") return { amount: 2499, currency: "INR" };
-    if (plan === "business") return { amount: 7999, currency: "INR" };
+const getPrice = (plan, billing = "monthly", country) => {
+  const prices = {
+    IN: {
+      pro: {
+        monthly: 2499,
+        yearly: 24999,
+      },
+      business: {
+        monthly: 7999,
+        yearly: 79999,
+      },
+    },
+
+    DEFAULT: {
+      pro: {
+        monthly: 29,
+        yearly: 290,
+      },
+      business: {
+        monthly: 99,
+        yearly: 990,
+      },
+    },
+  };
+
+  const region = country === "IN" ? prices.IN : prices.DEFAULT;
+
+  if (!region[plan]) {
+    throw new Error("Invalid plan");
   }
 
-  if (plan === "pro") return { amount: 29, currency: "USD" };
-  if (plan === "business") return { amount: 99, currency: "USD" };
-
-  throw new Error("Invalid plan");
+  return {
+    amount: region[plan][billing],
+    currency: country === "IN" ? "INR" : "USD",
+  };
 };
 
 exports.createCheckout = async (req, res) => {
   try {
-    const { plan } = req.body;
+    const { plan, billing = "monthly" } = req.body;
 
-    if (!["pro", "business"].includes(plan)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid plan",
-      });
-    }
+   if (
+  !["pro", "business"].includes(plan) ||
+  !["monthly", "yearly"].includes(billing)
+) {
+  return res.status(400).json({
+    success: false,
+    message: "Invalid plan or billing cycle",
+  });
+}
 
     const ip = getClientIp(req);
     const country = await getCountryFromIp(ip);
-    const price = getPrice(plan, country);
+    const price = getPrice(plan, billing, country);
 
     if (country === "IN") {
       const order = await razorpay.orders.create({
@@ -73,33 +101,36 @@ exports.createCheckout = async (req, res) => {
         currency: price.currency,
         receipt: `twinn_${Date.now()}`,
         notes: {
-          userId: req.user.id,
-          plan,
-          country,
-        },
+  userId: req.user.id,
+  plan,
+  billing,
+  country,
+},
       });
 
       await Payment.create({
-        userId: req.user.id,
-        plan,
-        gateway: "razorpay",
-        amount: price.amount,
-        currency: price.currency,
-        country,
-        orderId: order.id,
-        status: "created",
-      });
+  userId: req.user.id,
+  plan,
+  billing,
+  gateway: "razorpay",
+  amount: price.amount,
+  currency: price.currency,
+  country,
+  orderId: order.id,
+  status: "created",
+});
 
       return res.json({
-        success: true,
-        gateway: "razorpay",
-        key: process.env.RAZORPAY_KEY_ID,
-        orderId: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        plan,
-        country,
-      });
+  success: true,
+  gateway: "razorpay",
+  key: process.env.RAZORPAY_KEY_ID,
+  orderId: order.id,
+  amount: order.amount,
+  currency: order.currency,
+  plan,
+  billing,
+  country,
+});
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -119,30 +150,33 @@ exports.createCheckout = async (req, res) => {
       ],
       success_url: `${process.env.FRONTEND_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL}/payment-failed`,
-      metadata: {
-        userId: req.user.id,
-        plan,
-        country,
-      },
+     metadata: {
+  userId: req.user.id,
+  plan,
+  billing,
+  country,
+},
     });
 
     await Payment.create({
-      userId: req.user.id,
-      plan,
-      gateway: "stripe",
-      amount: price.amount,
-      currency: price.currency,
-      country,
-      sessionId: session.id,
-      status: "created",
-    });
+  userId: req.user.id,
+  plan,
+  billing,
+  gateway: "stripe",
+  amount: price.amount,
+  currency: price.currency,
+  country,
+  sessionId: session.id,
+  status: "created",
+});
 
-    return res.json({
-      success: true,
-      gateway: "stripe",
-      checkoutUrl: session.url,
-      country,
-    });
+   return res.json({
+  success: true,
+  gateway: "stripe",
+  checkoutUrl: session.url,
+  billing,
+  country,
+});
   } catch (error) {
     console.log("CREATE CHECKOUT ERROR:", error.message);
 
