@@ -9,6 +9,8 @@ const paymentRoutes = require("../modules/payment/payment.routes");
 const twinRoutes = require("../modules/twins/twin.routes");
 const avatarRoutes = require("../modules/avatar/avatar.routes");
 const creditsRoutes = require("../modules/credits/credits.routes");
+const adminRoutes = require("../modules/admin/admin.routes");
+
 
 router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
@@ -19,5 +21,9 @@ router.use("/live", liveRoutes);
 router.use("/twins", twinRoutes);
 router.use("/avatars", avatarRoutes);
 router.use("/credits", creditsRoutes);
+
+
+router.use("/admin", adminRoutes);
+
 
 module.exports = router;
