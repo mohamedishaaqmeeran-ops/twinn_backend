@@ -5,8 +5,8 @@ const MarketplaceAvatar = require("../models/MarketplaceAvatar");
 
 const avatars = [
   {
-    name: "Ariana Sales Host",
-    slug: "ariana-sales-host",
+    name: "Vijay Sales Host",
+    slug: "vijay-sales-host",
     image: "https://twinn.live/images/vijay.webp",
     previewVideo:
       "https://twinn.live/videos/avatars/vijay.mp4",
@@ -14,7 +14,7 @@ const avatars = [
       "Elegant live-commerce presenter for beauty, fashion and lifestyle products.",
     category: "Fashion",
     credits: 500,
-    voice: "Warm Female",
+    voice: "Warm Male",
     featured: true,
     premium: true,
     active: true,
