@@ -7,7 +7,7 @@ const avatars = [
   {
     name: "Ariana Sales Host",
     slug: "ariana-sales-host",
-    image: "https://twinn.live/images/avatars/vijay.webp",
+    image: "https://twinn.live/images/vijay.webp",
     previewVideo:
       "https://twinn.live/videos/avatars/vijay.mp4",
     description:
@@ -20,7 +20,7 @@ const avatars = [
     active: true,
     licenseType: "original",
   },
-  {
+   /*{
     name: "Daniel Business Coach",
     slug: "daniel-business-coach",
     image: "https://twinn.live/images/avatars/daniel.webp",
@@ -36,7 +36,7 @@ const avatars = [
     active: true,
     licenseType: "original",
   },
-  /*{
+ {
     name: "Maya Fitness Trainer",
     slug: "maya-fitness-trainer",
     image: "https://twinn.live/images/avatars/maya.webp",
