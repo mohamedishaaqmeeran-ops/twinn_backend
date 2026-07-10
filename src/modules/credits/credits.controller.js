@@ -5,11 +5,6 @@ const User = require("../../models/User");
 const CreditOrder = require("../../models/CreditOrder");
 const CreditTransaction = require("../../models/CreditTransaction");
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
-
 const CREDIT_PACKAGES = {
   starter: {
     id: "starter",
@@ -36,6 +31,12 @@ const CREDIT_PACKAGES = {
   },
 };
 
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
+
+
 exports.getPackages = async (req, res) => {
   res.json({
     success: true,
@@ -45,30 +46,67 @@ exports.getPackages = async (req, res) => {
 
 exports.createOrder = async (req, res) => {
   try {
+    const userId = req.user?._id || req.user?.id;
     const { packageId } = req.body;
+
+    console.log("CREATE CREDIT ORDER:", {
+      userId,
+      packageId,
+    });
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Authentication required",
+      });
+    }
+
+    if (!packageId) {
+      return res.status(400).json({
+        success: false,
+        message: "Package ID is required",
+      });
+    }
 
     const creditPackage = CREDIT_PACKAGES[packageId];
 
     if (!creditPackage) {
       return res.status(400).json({
         success: false,
-        message: "Invalid credit package",
+        message: `Invalid credit package: ${packageId}`,
       });
     }
 
+    if (
+      !process.env.RAZORPAY_KEY_ID ||
+      !process.env.RAZORPAY_KEY_SECRET
+    ) {
+      console.error("Razorpay environment variables are missing");
+
+      return res.status(500).json({
+        success: false,
+        message: "Razorpay configuration is missing",
+      });
+    }
+
+    // Keep the receipt short
+    const receipt = `cr_${Date.now()}`;
+
     const order = await razorpay.orders.create({
-      amount: creditPackage.amount * 100,
+      amount: Math.round(creditPackage.amount * 100),
       currency: creditPackage.currency,
-      receipt: `credits_${req.user.id}_${Date.now()}`,
+      receipt,
       notes: {
-        userId: req.user.id,
-        packageId: creditPackage.id,
+        userId: String(userId),
+        packageId: String(creditPackage.id),
         credits: String(creditPackage.credits),
       },
     });
 
-    await CreditOrder.create({
-      userId: req.user.id,
+    console.log("RAZORPAY ORDER CREATED:", order.id);
+
+    const savedOrder = await CreditOrder.create({
+      userId,
       packageId: creditPackage.id,
       credits: creditPackage.credits,
       amount: creditPackage.amount,
@@ -77,20 +115,32 @@ exports.createOrder = async (req, res) => {
       status: "created",
     });
 
-    res.json({
+    return res.status(201).json({
       success: true,
       key: process.env.RAZORPAY_KEY_ID,
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
       package: creditPackage,
+      creditOrderId: savedOrder._id,
     });
   } catch (error) {
-    console.error("CREATE CREDIT ORDER ERROR:", error);
+    console.error("CREATE CREDIT ORDER ERROR:", {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      statusCode: error.statusCode,
+      razorpayError: error.error,
+      mongoErrors: error.errors,
+    });
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
-      message: error.message || "Unable to create credit order",
+      message:
+        error.error?.description ||
+        error.error?.reason ||
+        error.message ||
+        "Unable to create credit order",
     });
   }
 };
