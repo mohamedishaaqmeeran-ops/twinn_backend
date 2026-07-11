@@ -10,10 +10,13 @@ const twinRoutes = require("../modules/twins/twin.routes");
 const avatarRoutes = require("../modules/avatar/avatar.routes");
 const creditsRoutes = require("../modules/credits/credits.routes");
 const adminRoutes = require("../modules/admin/admin.routes");
+const scheduleRoutes = require("../modules/schedule/schedule.routes");
+
 
 
 router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
+router.use("/api/schedules", scheduleRoutes);
 router.use("/products", productRoutes);
 router.use("/social", socialRoutes);
 router.use("/waitlist", waitlistRoutes);

@@ -1,8 +1,12 @@
 const express = require("express");
-const router = express.Router();
 
-const socialController = require("./social.controller");
-const authMiddleware = require("../../middleware/auth.middleware");
+const socialController =
+  require("./social.controller");
+
+const authMiddleware =
+  require("../../middleware/auth.middleware");
+
+const router = express.Router();
 
 router.get(
   "/connect/:platform",
@@ -10,12 +14,21 @@ router.get(
   socialController.startOAuth
 );
 
-router.get("/callback/:platform", socialController.oauthCallback);
+router.get(
+  "/callback/:platform",
+  socialController.oauthCallback
+);
 
 router.get(
   "/connections",
   authMiddleware.protect,
   socialController.getConnections
+);
+
+router.patch(
+  "/connections/instagram/rtmp",
+  authMiddleware.protect,
+  socialController.saveInstagramRtmp
 );
 
 router.delete(

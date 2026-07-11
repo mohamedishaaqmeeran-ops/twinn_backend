@@ -1,5 +1,3 @@
-const mongoose = require("mongoose");
-
 const connectionSchema = new mongoose.Schema(
   {
     userId: {
@@ -10,7 +8,12 @@ const connectionSchema = new mongoose.Schema(
 
     platform: {
       type: String,
-      enum: ["facebook", "instagram", "youtube", "tiktok"],
+      enum: [
+        "facebook",
+        "instagram",
+        "youtube",
+        "tiktok",
+      ],
       required: true,
     },
 
@@ -26,14 +29,54 @@ const connectionSchema = new mongoose.Schema(
     accessToken: String,
     refreshToken: String,
 
+    instagramRtmpUrl: {
+      type: String,
+      default: "",
+    },
+
+    instagramStreamKey: {
+      type: String,
+      default: "",
+      select: false,
+    },
+
+    facebookLiveVideoId: {
+      type: String,
+      default: "",
+    },
+
+    youtubeStreamUrl: {
+      type: String,
+      default: "",
+    },
+
+    youtubeStreamKey: {
+      type: String,
+      default: "",
+      select: false,
+    },
+
     connected: {
       type: Boolean,
       default: true,
     },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
-connectionSchema.index({ userId: 1, platform: 1 }, { unique: true });
+connectionSchema.index(
+  {
+    userId: 1,
+    platform: 1,
+  },
+  {
+    unique: true,
+  }
+);
 
-module.exports = mongoose.model("Connection", connectionSchema);
+module.exports = mongoose.model(
+  "Connection",
+  connectionSchema
+);
