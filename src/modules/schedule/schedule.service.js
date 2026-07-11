@@ -1,7 +1,15 @@
 const LiveSchedule = require("../../models/LiveSchedule");
 const Connection = require("../../models/Connection");
+const Product = require("../../models/Product");
 
 const SUPPORTED_PLATFORMS = [
+  "instagram",
+  "facebook",
+  "youtube",
+  "tiktok",
+];
+
+const PLATFORM_PRIORITY = [
   "instagram",
   "facebook",
   "youtube",
@@ -13,29 +21,39 @@ const normalizePlatforms = (platforms = []) => {
     ? platforms
     : [platforms];
 
-  return [
+  const uniquePlatforms = [
     ...new Set(
       list
         .map((platform) =>
-          String(platform).trim().toLowerCase()
+          String(platform || "")
+            .trim()
+            .toLowerCase()
         )
         .filter((platform) =>
           SUPPORTED_PLATFORMS.includes(platform)
         )
     ),
   ];
+
+  return uniquePlatforms.sort(
+    (first, second) =>
+      PLATFORM_PRIORITY.indexOf(first) -
+      PLATFORM_PRIORITY.indexOf(second)
+  );
 };
 
 exports.createSchedule = async ({
   user,
   payload,
 }) => {
+  if (!user?.id) {
+    throw new Error("Authenticated user is required.");
+  }
+
   const {
     title,
     description,
     productId,
-    product,
-    productName,
     videoPath,
     platforms,
     scheduledAt,
@@ -47,10 +65,12 @@ exports.createSchedule = async ({
     throw new Error("Schedule title is required.");
   }
 
+  if (!productId) {
+    throw new Error("Product is required.");
+  }
+
   if (!videoPath?.trim()) {
-    throw new Error(
-      "A video path or video URL is required."
-    );
+    throw new Error("Please upload a live video.");
   }
 
   if (!scheduledAt) {
@@ -81,13 +101,14 @@ exports.createSchedule = async ({
   }
 
   const plan = String(
-    user?.plan || "free"
+    user.plan || "free"
   ).toLowerCase();
 
-  const isPaidPlan =
-    plan === "pro" ||
-    plan === "business" ||
-    plan === "agency";
+  const isPaidPlan = [
+    "pro",
+    "business",
+    "agency",
+  ].includes(plan);
 
   const maxSchedules = isPaidPlan ? 50 : 1;
   const maxPlatforms = isPaidPlan ? 4 : 1;
@@ -97,6 +118,32 @@ exports.createSchedule = async ({
   ) {
     throw new Error(
       `Your ${plan} plan supports only ${maxPlatforms} platform(s) per schedule.`
+    );
+  }
+
+  const duration = Number(durationMinutes) || 30;
+
+  if (
+    !Number.isFinite(duration) ||
+    duration < 1 ||
+    duration > 480
+  ) {
+    throw new Error(
+      "Duration must be between 1 and 480 minutes."
+    );
+  }
+
+  const selectedProduct = await Product.findOne({
+    _id: productId,
+    userId: user.id,
+    status: {
+      $ne: "inactive",
+    },
+  });
+
+  if (!selectedProduct) {
+    throw new Error(
+      "Product not found or you do not have permission to use it."
     );
   }
 
@@ -124,18 +171,20 @@ exports.createSchedule = async ({
       $in: normalizedPlatforms,
     },
     connected: true,
-  }).select("+instagramStreamKey +youtubeStreamKey");
+  }).select(
+    "+instagramStreamKey +youtubeStreamKey +pageAccessToken"
+  );
 
-  const connectedPlatforms = new Set(
+  const connectedPlatformSet = new Set(
     connections.map((connection) =>
-      connection.platform.toLowerCase()
+      String(connection.platform).toLowerCase()
     )
   );
 
   const missingConnections =
     normalizedPlatforms.filter(
       (platform) =>
-        !connectedPlatforms.has(platform)
+        !connectedPlatformSet.has(platform)
     );
 
   if (missingConnections.length) {
@@ -165,6 +214,25 @@ exports.createSchedule = async ({
     }
   }
 
+  if (
+    normalizedPlatforms.includes("facebook")
+  ) {
+    const facebookConnection =
+      connections.find(
+        (connection) =>
+          connection.platform === "facebook"
+      );
+
+    if (
+      !facebookConnection?.pageId ||
+      !facebookConnection?.pageAccessToken
+    ) {
+      throw new Error(
+        "A connected Facebook Page is required before scheduling Facebook Live."
+      );
+    }
+  }
+
   const platformResults =
     normalizedPlatforms.map((platform) => ({
       platform,
@@ -179,9 +247,9 @@ exports.createSchedule = async ({
     description:
       description?.trim() || "",
 
-    productId: productId || null,
-    product: product || "",
-    productName: productName || "",
+    productId: selectedProduct._id,
+    product: selectedProduct.name,
+    productName: selectedProduct.name,
 
     videoPath: videoPath.trim(),
 
@@ -189,11 +257,15 @@ exports.createSchedule = async ({
 
     scheduledAt: scheduleDate,
 
-    timezone:
-      timezone || "Asia/Kolkata",
+endsAt: new Date(
+  scheduleDate.getTime() +
+    duration * 60 * 1000
+),
 
-    durationMinutes:
-      Number(durationMinutes) || 30,
+timezone:
+  timezone || "Asia/Kolkata",
+
+durationMinutes: duration,
 
     status: "Upcoming",
 
@@ -205,6 +277,10 @@ exports.getSchedules = async (userId) => {
   return LiveSchedule.find({
     userId,
   })
+    .populate(
+      "productId",
+      "name price salePrice images status"
+    )
     .sort({
       scheduledAt: 1,
     })
@@ -219,7 +295,10 @@ exports.getSchedule = async ({
     await LiveSchedule.findOne({
       _id: scheduleId,
       userId,
-    });
+    }).populate(
+      "productId",
+      "name price salePrice images status"
+    );
 
   if (!schedule) {
     throw new Error("Schedule not found.");
@@ -243,7 +322,7 @@ exports.cancelSchedule = async ({
   }
 
   if (
-    ["Live", "Completed"].includes(
+    ["Starting", "Live", "Completed"].includes(
       schedule.status
     )
   ) {
@@ -275,7 +354,9 @@ exports.deleteSchedule = async ({
     throw new Error("Schedule not found.");
   }
 
-  if (schedule.status === "Live") {
+  if (
+    ["Starting", "Live"].includes(schedule.status)
+  ) {
     throw new Error(
       "Stop the live session before deleting it."
     );

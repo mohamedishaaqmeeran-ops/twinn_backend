@@ -1,30 +1,32 @@
-const multer = require("multer");
-const path = require("path");
 const liveService = require("./live.service");
 
-const storage = multer.diskStorage({
-  destination: "uploads/videos",
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + "-" + file.originalname);
-  },
-});
-
-const upload = multer({ storage }).single("video");
-
-exports.uploadVideo = (req, res) => {
-  upload(req, res, (err) => {
-    if (err) {
+exports.uploadVideo = async (req, res) => {
+  try {
+    if (!req.file) {
       return res.status(400).json({
         success: false,
-        message: "Video upload failed",
+        message: "Please select a video file.",
       });
     }
 
-    res.json({
+    return res.status(201).json({
       success: true,
-      videoPath: req.file.path,
+      message: "Video uploaded successfully.",
+      data: {
+        videoUrl: req.file.path,
+        publicId: req.file.filename,
+        fileName: req.file.originalname,
+        size: req.file.size,
+      },
     });
-  });
+  } catch (error) {
+    console.error("VIDEO UPLOAD ERROR:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Video upload failed.",
+    });
+  }
 };
 
 exports.startInstagramRTMP = async (req, res) => {

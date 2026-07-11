@@ -87,6 +87,11 @@ const liveScheduleSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    endsAt: {
+  type: Date,
+  default: null,
+  index: true,
+},
 
     timezone: {
       type: String,
@@ -140,6 +145,7 @@ liveScheduleSchema.index({
   status: 1,
   scheduledAt: 1,
   isProcessing: 1,
+  endsAt: 1,
 });
 
 module.exports = mongoose.model(

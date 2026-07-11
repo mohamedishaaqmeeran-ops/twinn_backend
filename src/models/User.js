@@ -20,12 +20,11 @@ const userSchema = new mongoose.Schema(
       default: "user",
     },
 
-    plan: {
-      type: String,
-      enum: ["free", "pro", "business"],
-      default: "free",
-    },
-
+   plan: {
+  type: String,
+  enum: ["free", "pro", "business", "agency"],
+  default: "free",
+},
     isVerified: {
       type: Boolean,
       default: false,

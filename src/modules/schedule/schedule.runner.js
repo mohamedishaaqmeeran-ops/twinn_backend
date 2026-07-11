@@ -1,8 +1,5 @@
-const LiveSchedule =
-  require("../../models/LiveSchedule");
-
-const liveService =
-  require("../live/live.service");
+const LiveSchedule = require("../../models/LiveSchedule");
+const liveService = require("../live/live.service");
 
 const PLATFORM_PRIORITY = [
   "instagram",
@@ -15,15 +12,9 @@ const sortPlatformsByPriority = (
   platforms = []
 ) => {
   return [...platforms].sort(
-    (first, second) => {
-      const firstIndex =
-        PLATFORM_PRIORITY.indexOf(first);
-
-      const secondIndex =
-        PLATFORM_PRIORITY.indexOf(second);
-
-      return firstIndex - secondIndex;
-    }
+    (first, second) =>
+      PLATFORM_PRIORITY.indexOf(first) -
+      PLATFORM_PRIORITY.indexOf(second)
   );
 };
 
@@ -33,9 +24,7 @@ const updatePlatformResult = async (
   update
 ) => {
   const schedule =
-    await LiveSchedule.findById(
-      scheduleId
-    );
+    await LiveSchedule.findById(scheduleId);
 
   if (!schedule) {
     return;
@@ -47,25 +36,42 @@ const updatePlatformResult = async (
         item.platform === platform
     );
 
-  if (!result) {
+  if (result) {
+    Object.assign(result, update);
+  } else {
     schedule.platformResults.push({
       platform,
       ...update,
     });
-  } else {
-    Object.assign(result, update);
   }
 
   await schedule.save();
+};
+
+const safeUpdatePlatformResult = (
+  scheduleId,
+  platform,
+  update
+) => {
+  updatePlatformResult(
+    scheduleId,
+    platform,
+    update
+  ).catch((error) => {
+    console.error(
+      `UPDATE ${platform} RESULT ERROR:`,
+      error
+    );
+  });
 };
 
 const startPlatform = async ({
   schedule,
   platform,
 }) => {
-  const commonCallbacks = {
-    onStarted: async () => {
-      await updatePlatformResult(
+  const callbacks = {
+    onStarted: () => {
+      safeUpdatePlatformResult(
         schedule._id,
         platform,
         {
@@ -76,24 +82,38 @@ const startPlatform = async ({
       );
     },
 
-    onEnded: async () => {
-      await updatePlatformResult(
+    onEnded: ({ code } = {}) => {
+      safeUpdatePlatformResult(
         schedule._id,
         platform,
         {
-          status: "completed",
+          status:
+            code === 0 ||
+            code === null
+              ? "completed"
+              : "failed",
+
           completedAt: new Date(),
+
+          error:
+            code === 0 ||
+            code === null
+              ? ""
+              : `FFmpeg exited with code ${code}`,
         }
       );
     },
 
-    onError: async (error) => {
-      await updatePlatformResult(
+    onError: (error) => {
+      safeUpdatePlatformResult(
         schedule._id,
         platform,
         {
           status: "failed",
-          error: error.message,
+          completedAt: new Date(),
+          error:
+            error?.message ||
+            "Streaming process failed.",
         }
       );
     },
@@ -103,10 +123,8 @@ const startPlatform = async ({
     return liveService.startInstagramLive(
       schedule.userId,
       {
-        videoPath:
-          schedule.videoPath,
-
-        ...commonCallbacks,
+        videoPath: schedule.videoPath,
+        ...callbacks,
       }
     );
   }
@@ -115,15 +133,11 @@ const startPlatform = async ({
     return liveService.startFacebookLive(
       schedule.userId,
       {
-        videoPath:
-          schedule.videoPath,
-
+        videoPath: schedule.videoPath,
         title: schedule.title,
-
         description:
           schedule.description,
-
-        ...commonCallbacks,
+        ...callbacks,
       }
     );
   }
@@ -149,19 +163,13 @@ exports.runSchedule = async (
   scheduleId
 ) => {
   const schedule =
-    await LiveSchedule.findById(
-      scheduleId
-    );
+    await LiveSchedule.findById(scheduleId);
 
   if (!schedule) {
-    throw new Error(
-      "Schedule not found."
-    );
+    throw new Error("Schedule not found.");
   }
 
-  if (
-    schedule.status !== "Starting"
-  ) {
+  if (schedule.status !== "Starting") {
     throw new Error(
       `Schedule status is ${schedule.status}.`
     );
@@ -174,10 +182,7 @@ exports.runSchedule = async (
 
   const results = [];
 
-  // Runs Instagram first, then Facebook.
-  for (
-    const platform of prioritizedPlatforms
-  ) {
+  for (const platform of prioritizedPlatforms) {
     try {
       await updatePlatformResult(
         schedule._id,
@@ -200,10 +205,9 @@ exports.runSchedule = async (
         data: result,
       });
 
-      // Small delay before starting next platform.
-      await new Promise((resolve) =>
-        setTimeout(resolve, 3000)
-      );
+      await new Promise((resolve) => {
+        setTimeout(resolve, 3000);
+      });
     } catch (error) {
       console.error(
         `SCHEDULE ${schedule._id} ${platform} ERROR:`,
@@ -215,7 +219,10 @@ exports.runSchedule = async (
         platform,
         {
           status: "failed",
-          error: error.message,
+          completedAt: new Date(),
+          error:
+            error.message ||
+            "Unable to start stream.",
         }
       );
 
@@ -232,17 +239,26 @@ exports.runSchedule = async (
       (result) => result.success
     );
 
-  schedule.status =
+  const freshSchedule =
+    await LiveSchedule.findById(
+      schedule._id
+    );
+
+  if (!freshSchedule) {
+    return results;
+  }
+
+  freshSchedule.status =
     successfulResults.length > 0
       ? "Live"
       : "Failed";
 
-  schedule.startedAt =
+  freshSchedule.startedAt =
     successfulResults.length > 0
       ? new Date()
-      : undefined;
+      : null;
 
-  schedule.lastError =
+  freshSchedule.lastError =
     successfulResults.length === 0
       ? results
           .map(
@@ -250,46 +266,20 @@ exports.runSchedule = async (
               `${result.platform}: ${result.error}`
           )
           .join(" | ")
-      : "";
-
-  schedule.isProcessing = false;
-  schedule.lockedAt = null;
-
-  await schedule.save();
-
-  if (
-    successfulResults.length > 0 &&
-    schedule.durationMinutes
-  ) {
-    const stopDelay =
-      schedule.durationMinutes *
-      60 *
-      1000;
-
-    setTimeout(async () => {
-      try {
-        await liveService.stopPlatforms(
-          schedule.userId,
-          successfulResults.map(
-            (result) => result.platform
+      : results
+          .filter(
+            (result) => !result.success
           )
-        );
+          .map(
+            (result) =>
+              `${result.platform}: ${result.error}`
+          )
+          .join(" | ");
 
-        await LiveSchedule.findByIdAndUpdate(
-          schedule._id,
-          {
-            status: "Completed",
-            completedAt: new Date(),
-          }
-        );
-      } catch (error) {
-        console.error(
-          "AUTO STOP ERROR:",
-          error
-        );
-      }
-    }, stopDelay);
-  }
+  freshSchedule.isProcessing = false;
+  freshSchedule.lockedAt = null;
+
+  await freshSchedule.save();
 
   return results;
 };
