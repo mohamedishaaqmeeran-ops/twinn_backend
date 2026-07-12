@@ -1,5 +1,8 @@
-const LiveSchedule = require("../../models/LiveSchedule");
-const liveService = require("../live/live.service");
+const LiveSchedule =
+  require("../../models/LiveSchedule");
+
+const liveService =
+  require("../live/live.service");
 
 const PLATFORM_PRIORITY = [
   "instagram",
@@ -24,10 +27,8 @@ const updatePlatformResult = async (
   update
 ) => {
   const schedule =
-  await LiveSchedule.findById(scheduleId)
-    .select(
-      "+instagramRtmpUrl +instagramStreamKey"
-    );
+    await LiveSchedule.findById(scheduleId);
+
   if (!schedule) {
     return;
   }
@@ -79,29 +80,30 @@ const startPlatform = async ({
         {
           status: "live",
           startedAt: new Date(),
+          completedAt: null,
           error: "",
         }
       );
     },
 
     onEnded: ({ code } = {}) => {
+      const completed =
+        code === 0 ||
+        code === null;
+
       safeUpdatePlatformResult(
         schedule._id,
         platform,
         {
-          status:
-            code === 0 ||
-            code === null
-              ? "completed"
-              : "failed",
+          status: completed
+            ? "completed"
+            : "failed",
 
           completedAt: new Date(),
 
-          error:
-            code === 0 ||
-            code === null
-              ? ""
-              : `FFmpeg exited with code ${code}`,
+          error: completed
+            ? ""
+            : `FFmpeg exited with code ${code}`,
         }
       );
     },
@@ -113,6 +115,7 @@ const startPlatform = async ({
         {
           status: "failed",
           completedAt: new Date(),
+
           error:
             error?.message ||
             "Streaming process failed.",
@@ -121,26 +124,37 @@ const startPlatform = async ({
     },
   };
 
- if (platform === "instagram") {
-  return liveService.startInstagramLive(
-    schedule.userId,
-    {
-      videoPath: schedule.videoPath,
-      rtmpUrl: schedule.instagramRtmpUrl,
-      streamKey: schedule.instagramStreamKey,
-      ...callbacks,
-    }
-  );
-}
+  if (platform === "instagram") {
+    return liveService.startInstagramLive(
+      schedule.userId,
+      {
+        videoPath:
+          schedule.videoPath,
+
+        rtmpUrl:
+          schedule.instagramRtmpUrl,
+
+        streamKey:
+          schedule.instagramStreamKey,
+
+        ...callbacks,
+      }
+    );
+  }
 
   if (platform === "facebook") {
     return liveService.startFacebookLive(
       schedule.userId,
       {
-        videoPath: schedule.videoPath,
-        title: schedule.title,
+        videoPath:
+          schedule.videoPath,
+
+        title:
+          schedule.title,
+
         description:
           schedule.description,
+
         ...callbacks,
       }
     );
@@ -167,13 +181,38 @@ exports.runSchedule = async (
   scheduleId
 ) => {
   const schedule =
-    await LiveSchedule.findById(scheduleId);
+    await LiveSchedule.findById(scheduleId)
+      .select(
+        "+instagramRtmpUrl +instagramStreamKey"
+      );
 
   if (!schedule) {
-    throw new Error("Schedule not found.");
+    throw new Error(
+      "Schedule not found."
+    );
   }
 
-  if (schedule.status !== "Starting") {
+  console.log("SCHEDULE RTMP CHECK:", {
+    scheduleId:
+      String(schedule._id),
+
+    hasRtmpUrl:
+      Boolean(
+        schedule.instagramRtmpUrl
+      ),
+
+    hasStreamKey:
+      Boolean(
+        schedule.instagramStreamKey
+      ),
+
+    platforms:
+      schedule.platforms,
+  });
+
+  if (
+    schedule.status !== "Starting"
+  ) {
     throw new Error(
       `Schedule status is ${schedule.status}.`
     );
@@ -186,13 +225,17 @@ exports.runSchedule = async (
 
   const results = [];
 
-  for (const platform of prioritizedPlatforms) {
+  for (
+    const platform of prioritizedPlatforms
+  ) {
     try {
       await updatePlatformResult(
         schedule._id,
         platform,
         {
           status: "starting",
+          startedAt: null,
+          completedAt: null,
           error: "",
         }
       );
@@ -233,7 +276,9 @@ exports.runSchedule = async (
       results.push({
         platform,
         success: false,
-        error: error.message,
+        error:
+          error.message ||
+          "Unable to start stream.",
       });
     }
   }
@@ -263,22 +308,16 @@ exports.runSchedule = async (
       : null;
 
   freshSchedule.lastError =
-    successfulResults.length === 0
-      ? results
-          .map(
-            (result) =>
-              `${result.platform}: ${result.error}`
-          )
-          .join(" | ")
-      : results
-          .filter(
-            (result) => !result.success
-          )
-          .map(
-            (result) =>
-              `${result.platform}: ${result.error}`
-          )
-          .join(" | ");
+    results
+      .filter(
+        (result) =>
+          !result.success
+      )
+      .map(
+        (result) =>
+          `${result.platform}: ${result.error}`
+      )
+      .join(" | ");
 
   freshSchedule.isProcessing = false;
   freshSchedule.lockedAt = null;

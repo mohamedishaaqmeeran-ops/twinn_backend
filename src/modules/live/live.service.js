@@ -203,7 +203,7 @@ class LiveService {
     };
   }
 
-  async startInstagramLive(
+ async startInstagramLive(
   userId,
   {
     videoPath,
@@ -236,6 +236,24 @@ class LiveService {
     String(streamKey || "")
       .trim()
       .replace(/^\/+/, "");
+
+  console.log(
+    "INSTAGRAM STREAM INPUT:",
+    {
+      userId: String(userId),
+
+      hasVideoPath:
+        Boolean(videoPath),
+
+      hasRtmpUrl:
+        Boolean(normalizedRtmpUrl),
+
+      hasStreamKey:
+        Boolean(
+          normalizedStreamKey
+        ),
+    }
+  );
 
   if (!normalizedRtmpUrl) {
     throw new Error(
