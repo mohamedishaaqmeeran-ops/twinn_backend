@@ -24,8 +24,10 @@ const updatePlatformResult = async (
   update
 ) => {
   const schedule =
-    await LiveSchedule.findById(scheduleId);
-
+  await LiveSchedule.findById(scheduleId)
+    .select(
+      "+instagramRtmpUrl +instagramStreamKey"
+    );
   if (!schedule) {
     return;
   }
@@ -119,15 +121,17 @@ const startPlatform = async ({
     },
   };
 
-  if (platform === "instagram") {
-    return liveService.startInstagramLive(
-      schedule.userId,
-      {
-        videoPath: schedule.videoPath,
-        ...callbacks,
-      }
-    );
-  }
+ if (platform === "instagram") {
+  return liveService.startInstagramLive(
+    schedule.userId,
+    {
+      videoPath: schedule.videoPath,
+      rtmpUrl: schedule.instagramRtmpUrl,
+      streamKey: schedule.instagramStreamKey,
+      ...callbacks,
+    }
+  );
+}
 
   if (platform === "facebook") {
     return liveService.startFacebookLive(

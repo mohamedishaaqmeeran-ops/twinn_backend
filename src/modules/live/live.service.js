@@ -204,75 +204,80 @@ class LiveService {
   }
 
   async startInstagramLive(
-    userId,
-    {
-      videoPath,
-      onStarted,
-      onEnded,
-      onError,
-    }
-  ) {
-    const connection =
-      await Connection.findOne({
-        userId,
-        platform: "instagram",
-        connected: true,
-      }).select(
-        "+instagramStreamKey"
-      );
-
-    if (!connection) {
-      throw new Error(
-        "Instagram is not connected."
-      );
-    }
-
-    if (
-      !connection.instagramRtmpUrl ||
-      !connection.instagramStreamKey
-    ) {
-      throw new Error(
-        "Instagram RTMP URL and stream key are missing."
-      );
-    }
-
-    const rtmpUrl =
-      connection.instagramRtmpUrl.replace(
-        /\/+$/,
-        ""
-      );
-
-    const streamKey =
-      connection.instagramStreamKey.replace(
-        /^\/+/,
-        ""
-      );
-
-    const streamUrl =
-      `${rtmpUrl}/${streamKey}`;
-
-    return this.startFFmpeg({
+  userId,
+  {
+    videoPath,
+    rtmpUrl,
+    streamKey,
+    onStarted,
+    onEnded,
+    onError,
+  }
+) {
+  const connection =
+    await Connection.findOne({
       userId,
       platform: "instagram",
-      videoPath,
-      streamUrl,
-      onStarted,
-      onEnded,
-      onError,
+      connected: true,
     });
-  }
 
-  async startInstagramRTMP(
-    userId,
-    body
-  ) {
-    return this.startInstagramLive(
-      userId,
-      {
-        videoPath: body.videoPath,
-      }
+  if (!connection) {
+    throw new Error(
+      "Instagram is not connected for this user."
     );
   }
+
+  const normalizedRtmpUrl = String(
+    rtmpUrl || ""
+  )
+    .trim()
+    .replace(/\/+$/, "");
+
+  const normalizedStreamKey = String(
+    streamKey || ""
+  )
+    .trim()
+    .replace(/^\/+/, "");
+
+  if (!normalizedRtmpUrl) {
+    throw new Error(
+      "Instagram RTMP URL is missing for this schedule."
+    );
+  }
+
+  if (!normalizedStreamKey) {
+    throw new Error(
+      "Instagram stream key is missing for this schedule."
+    );
+  }
+
+  const streamUrl =
+    `${normalizedRtmpUrl}/${normalizedStreamKey}`;
+
+  return this.startFFmpeg({
+    userId,
+    platform: "instagram",
+    videoPath,
+    streamUrl,
+    onStarted,
+    onEnded,
+    onError,
+  });
+}
+
+  async startInstagramRTMP(
+  userId,
+  body
+) {
+  return this.startInstagramLive(
+    userId,
+    {
+      videoPath: body.videoPath,
+      rtmpUrl: body.rtmpUrl,
+      streamKey: body.streamKey,
+    }
+  );
+}
 
   async createFacebookLive({
     connection,

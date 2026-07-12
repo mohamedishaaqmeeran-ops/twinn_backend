@@ -51,15 +51,17 @@ exports.createSchedule = async ({
   }
 
   const {
-    title,
-    description,
-    productId,
-    videoPath,
-    platforms,
-    scheduledAt,
-    timezone,
-    durationMinutes,
-  } = payload;
+  title,
+  description,
+  productId,
+  videoPath,
+  platforms,
+  scheduledAt,
+  timezone,
+  durationMinutes,
+  instagramRtmpUrl,
+  instagramStreamKey,
+} = payload;
 
   if (!title?.trim()) {
     throw new Error("Schedule title is required.");
@@ -195,24 +197,36 @@ exports.createSchedule = async ({
     );
   }
 
-  if (
-    normalizedPlatforms.includes("instagram")
-  ) {
-    const instagramConnection =
-      connections.find(
-        (connection) =>
-          connection.platform === "instagram"
-      );
+  if (normalizedPlatforms.includes("instagram")) {
+  const normalizedRtmpUrl = String(
+    instagramRtmpUrl || ""
+  ).trim();
 
-    if (
-      !instagramConnection?.instagramRtmpUrl ||
-      !instagramConnection?.instagramStreamKey
-    ) {
-      throw new Error(
-        "Instagram RTMP URL and stream key are required before scheduling Instagram Live."
-      );
-    }
+  const normalizedStreamKey = String(
+    instagramStreamKey || ""
+  ).trim();
+
+  if (!normalizedRtmpUrl) {
+    throw new Error(
+      "Instagram RTMP URL is required for this schedule."
+    );
   }
+
+  if (!normalizedStreamKey) {
+    throw new Error(
+      "Instagram stream key is required for this schedule."
+    );
+  }
+
+  if (
+    !normalizedRtmpUrl.startsWith("rtmp://") &&
+    !normalizedRtmpUrl.startsWith("rtmps://")
+  ) {
+    throw new Error(
+      "Instagram RTMP URL must start with rtmp:// or rtmps://."
+    );
+  }
+}
 
   if (
     normalizedPlatforms.includes("facebook")
@@ -240,37 +254,47 @@ exports.createSchedule = async ({
     }));
 
   return LiveSchedule.create({
-    userId: user.id,
+  userId: user.id,
 
-    title: title.trim(),
+  title: title.trim(),
 
-    description:
-      description?.trim() || "",
+  description:
+    description?.trim() || "",
 
-    productId: selectedProduct._id,
-    product: selectedProduct.name,
-    productName: selectedProduct.name,
+  productId: selectedProduct._id,
+  product: selectedProduct.name,
+  productName: selectedProduct.name,
 
-    videoPath: videoPath.trim(),
+  videoPath: videoPath.trim(),
 
-    platforms: normalizedPlatforms,
+  instagramRtmpUrl:
+    normalizedPlatforms.includes("instagram")
+      ? String(instagramRtmpUrl).trim().replace(/\/+$/, "")
+      : "",
 
-    scheduledAt: scheduleDate,
+  instagramStreamKey:
+    normalizedPlatforms.includes("instagram")
+      ? String(instagramStreamKey).trim().replace(/^\/+/, "")
+      : "",
 
-endsAt: new Date(
-  scheduleDate.getTime() +
-    duration * 60 * 1000
-),
+  platforms: normalizedPlatforms,
 
-timezone:
-  timezone || "Asia/Kolkata",
+  scheduledAt: scheduleDate,
 
-durationMinutes: duration,
+  endsAt: new Date(
+    scheduleDate.getTime() +
+      duration * 60 * 1000
+  ),
 
-    status: "Upcoming",
+  timezone:
+    timezone || "Asia/Kolkata",
 
-    platformResults,
-  });
+  durationMinutes: duration,
+
+  status: "Upcoming",
+
+  platformResults,
+});
 };
 
 exports.getSchedules = async (userId) => {

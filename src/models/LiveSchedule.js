@@ -74,6 +74,17 @@ const liveScheduleSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    instagramRtmpUrl: {
+  type: String,
+  default: "",
+  select: false,
+},
+
+instagramStreamKey: {
+  type: String,
+  default: "",
+  select: false,
+},
 
     platforms: [
       {
