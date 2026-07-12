@@ -227,17 +227,15 @@ class LiveService {
     );
   }
 
-  const normalizedRtmpUrl = String(
-    rtmpUrl || ""
-  )
-    .trim()
-    .replace(/\/+$/, "");
+  const normalizedRtmpUrl =
+    String(rtmpUrl || "")
+      .trim()
+      .replace(/\/+$/, "");
 
-  const normalizedStreamKey = String(
-    streamKey || ""
-  )
-    .trim()
-    .replace(/^\/+/, "");
+  const normalizedStreamKey =
+    String(streamKey || "")
+      .trim()
+      .replace(/^\/+/, "");
 
   if (!normalizedRtmpUrl) {
     throw new Error(

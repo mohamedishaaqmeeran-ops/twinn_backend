@@ -268,14 +268,18 @@ exports.createSchedule = async ({
   videoPath: videoPath.trim(),
 
   instagramRtmpUrl:
-    normalizedPlatforms.includes("instagram")
-      ? String(instagramRtmpUrl).trim().replace(/\/+$/, "")
-      : "",
+  normalizedPlatforms.includes("instagram")
+    ? String(instagramRtmpUrl || "")
+        .trim()
+        .replace(/\/+$/, "")
+    : "",
 
-  instagramStreamKey:
-    normalizedPlatforms.includes("instagram")
-      ? String(instagramStreamKey).trim().replace(/^\/+/, "")
-      : "",
+instagramStreamKey:
+  normalizedPlatforms.includes("instagram")
+    ? String(instagramStreamKey || "")
+        .trim()
+        .replace(/^\/+/, "")
+    : "",
 
   platforms: normalizedPlatforms,
 
