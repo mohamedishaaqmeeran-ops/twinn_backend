@@ -7,7 +7,7 @@ const socialRoutes = require("../modules/social/social.routes");
 const waitlistRoutes = require("../modules/waitlist/waitlist.routes");
 const liveRoutes = require("../modules/live/live.routes");
 const paymentRoutes = require("../modules/payment/payment.routes");
-const twinRoutes = require("../modules/twins/twin.routes");
+const twinRoutes = require("../modules/twin/twin.routes");
 const avatarRoutes = require("../modules/avatar/avatar.routes");
 const creditsRoutes = require("../modules/credits/credits.routes");
 const adminRoutes = require("../modules/admin/admin.routes");
@@ -19,7 +19,11 @@ router.use("/products", productRoutes);
 router.use("/social", socialRoutes);
 router.use("/waitlist", waitlistRoutes);
 router.use("/live", liveRoutes);
-router.use("/twins", twinRoutes);
+router.use(
+  "/twin",
+  twinRoutes
+);
+
 router.use("/avatars", avatarRoutes);
 router.use("/credits", creditsRoutes);
 router.use("/admin", adminRoutes);
