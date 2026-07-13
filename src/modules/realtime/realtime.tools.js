@@ -5,7 +5,7 @@ const Product = require(
 );
 
 const embeddingService = require(
-  "../twin/embedding.service"
+  "../twins/embedding.service"
 );
 
 const validateObjectId = (
