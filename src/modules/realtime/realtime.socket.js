@@ -491,7 +491,26 @@ const handleConnection =
 
                 break;
               }
+case "conversation:interrupt": {
+  try {
+    gemini.activityEnd();
+  } catch (error) {
+    console.error(
+      "INTERRUPT ERROR:",
+      error.message
+    );
+  }
 
+  sendSocketMessage(
+    socket,
+    {
+      event:
+        "conversation:interrupted",
+    }
+  );
+
+  break;
+}
               case "session:stop": {
                 closing = true;
 
