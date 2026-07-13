@@ -18,6 +18,12 @@ const {
   "../../config/redis"
 );
 
+const {
+  createGeminiLiveSession,
+} = require(
+  "./geminiLive.service"
+);
+
 const sendSocketMessage = (
   socket,
   payload
@@ -32,55 +38,95 @@ const sendSocketMessage = (
   }
 };
 
-const authenticateSocket = async (
-  request
-) => {
-  const baseUrl =
-    process.env.PUBLIC_API_URL ||
-    "http://localhost:8000";
+const authenticateSocket =
+  async (request) => {
+    const baseUrl =
+      process.env.PUBLIC_API_URL ||
+      "http://localhost:8000";
 
-  const requestUrl = new URL(
-    request.url,
-    baseUrl
-  );
+    const requestUrl =
+      new URL(
+        request.url,
+        baseUrl
+      );
 
-  const token =
-    requestUrl.searchParams.get(
-      "token"
+    const token =
+      requestUrl.searchParams.get(
+        "token"
+      );
+
+    if (!token) {
+      return null;
+    }
+
+    const redis =
+      getRedis();
+
+    const redisKey =
+      `realtime-token:${token}`;
+
+    const stored =
+      await redis.get(
+        redisKey
+      );
+
+    if (!stored) {
+      return null;
+    }
+
+    /*
+     * One-time WebSocket token.
+     */
+    await redis.del(redisKey);
+
+    return JSON.parse(stored);
+  };
+
+const appendTranscript =
+  async ({
+    sessionId,
+    role,
+    text,
+  }) => {
+    const normalized =
+      String(text || "").trim();
+
+    if (!normalized) {
+      return;
+    }
+
+    await RealtimeSession.updateOne(
+      {
+        _id: sessionId,
+      },
+
+      {
+        $push: {
+          transcripts: {
+            $each: [
+              {
+                role,
+                text: normalized,
+                createdAt:
+                  new Date(),
+              },
+            ],
+
+            $slice: -100,
+          },
+        },
+      }
     );
+  };
 
-  if (!token) {
-    return null;
-  }
-
-  const redis = getRedis();
-
-  const redisKey =
-    `realtime-token:${token}`;
-
-  const storedSession =
-    await redis.get(redisKey);
-
-  if (!storedSession) {
-    return null;
-  }
-
-  /*
-   * One-time token. Delete it after
-   * successful WebSocket authentication.
-   */
-  await redis.del(redisKey);
-
-  return JSON.parse(
-    storedSession
-  );
-};
-
-const handleRealtimeConnection =
+const handleConnection =
   async ({
     socket,
     auth,
   }) => {
+    let gemini = null;
+    let closing = false;
+
     const session =
       await RealtimeSession.findOne({
         _id: auth.sessionId,
@@ -90,165 +136,253 @@ const handleRealtimeConnection =
     if (!session) {
       socket.close(
         4004,
-        "Realtime session not found"
+        "Session not found"
       );
 
       return;
     }
 
-    const twin =
-      await Twin.findOne({
-        _id: session.twinId,
-        userId: auth.userId,
-      });
+    try {
+      session.status =
+        "connecting";
 
-    if (!twin) {
-      socket.close(
-        4004,
-        "AI Twin not found"
-      );
+      await session.save();
 
-      return;
-    }
-
-    let product = null;
-
-    if (session.productId) {
-      product =
-        await Product.findOne({
-          _id: session.productId,
+      const twin =
+        await Twin.findOne({
+          _id: session.twinId,
           userId: auth.userId,
         });
-    }
 
-    session.status =
-      "active";
-
-    session.startedAt =
-      session.startedAt ||
-      new Date();
-
-    await session.save();
-
-    sendSocketMessage(
-      socket,
-      {
-        event:
-          "session:ready",
-
-        sessionId:
-          String(session._id),
-
-        twin: {
-          id:
-            String(twin._id),
-
-          name:
-            twin.name,
-
-          image:
-            twin.appearance
-              ?.avatarUrl ||
-            twin.image ||
-            "",
-
-          voice:
-            twin.voice
-              ?.voiceType ||
-            twin.voiceName ||
-            "Warm Female",
-        },
-
-        product: product
-          ? {
-              id:
-                String(
-                  product._id
-                ),
-
-              name:
-                product.name,
-            }
-          : null,
+      if (!twin) {
+        throw new Error(
+          "AI Twin not found."
+        );
       }
-    );
 
-    socket.on(
-      "message",
-      async (rawMessage) => {
-        try {
-          const message =
-            JSON.parse(
-              rawMessage.toString()
-            );
+      let product = null;
 
-          switch (
-            message.event
-          ) {
-            case "ping": {
-              sendSocketMessage(
-                socket,
-                {
-                  event: "pong",
-                  timestamp:
-                    Date.now(),
-                }
-              );
+      if (session.productId) {
+        product =
+          await Product.findOne({
+            _id:
+              session.productId,
 
-              break;
-            }
+            userId:
+              auth.userId,
+          });
+      }
 
-            case "text:input": {
-              /*
-               * Gemini Live integration
-               * will be added here.
-               */
+      gemini =
+        await createGeminiLiveSession({
+          userId:
+            auth.userId,
 
-              sendSocketMessage(
-                socket,
-                {
-                  event:
-                    "text:received",
+          twin,
+          product,
 
-                  text:
+          language:
+            session.language,
+
+          onReady: async ({
+            sessionId:
+              geminiSessionId,
+          }) => {
+            session.geminiSessionId =
+              geminiSessionId;
+
+            session.status =
+              "active";
+
+            session.startedAt =
+              new Date();
+
+            await session.save();
+
+            sendSocketMessage(
+              socket,
+              {
+                event:
+                  "session:ready",
+
+                sessionId:
+                  String(
+                    session._id
+                  ),
+
+                audio: {
+                  inputSampleRate:
+                    16000,
+
+                  outputSampleRate:
+                    24000,
+
+                  channels: 1,
+
+                  encoding:
+                    "pcm_s16le",
+                },
+
+                twin: {
+                  id:
                     String(
-                      message.text ||
-                        ""
+                      twin._id
                     ),
+
+                  name:
+                    twin.name,
+
+                  avatarUrl:
+                    twin
+                      .appearance
+                      ?.avatarUrl ||
+                    twin.image ||
+                    "",
+
+                  voiceName:
+                    session.voiceName,
+
+                  language:
+                    session.language,
+                },
+
+                product:
+                  product
+                    ? {
+                        id:
+                          String(
+                            product._id
+                          ),
+
+                        name:
+                          product.name,
+                      }
+                    : null,
+              }
+            );
+          },
+
+          onAudio:
+            async (
+              pcmBuffer
+            ) => {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "audio:output",
+
+                  audio:
+                    pcmBuffer.toString(
+                      "base64"
+                    ),
+
+                  mimeType:
+                    "audio/pcm;rate=24000",
+
+                  sampleRate:
+                    24000,
+                }
+              );
+            },
+
+          onUserTranscript:
+            async (text) => {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "transcript:user",
+
+                  text,
                 }
               );
 
-              break;
-            }
+              await appendTranscript({
+                sessionId:
+                  session._id,
 
-            case "audio:input": {
-              /*
-               * Microphone PCM forwarding
-               * to Gemini Live will be
-               * added here.
-               */
+                role: "user",
+
+                text,
+              });
+            },
+
+          onAssistantTranscript:
+            async (text) => {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "transcript:assistant",
+
+                  text,
+                }
+              );
+
+              await appendTranscript({
+                sessionId:
+                  session._id,
+
+                role:
+                  "assistant",
+
+                text,
+              });
+            },
+
+          onInterrupted:
+            async () => {
+              session.status =
+                "interrupted";
+
+              await session.save();
 
               sendSocketMessage(
                 socket,
                 {
                   event:
-                    "audio:received",
+                    "conversation:interrupted",
                 }
               );
+            },
 
-              break;
-            }
+          onTurnComplete:
+            async () => {
+              if (
+                session.status ===
+                "interrupted"
+              ) {
+                session.status =
+                  "active";
 
-            case "session:stop": {
-              socket.close(
-                1000,
-                "Session ended"
+                await session.save();
+              }
+
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "conversation:turn-complete",
+                }
+              );
+            },
+
+          onError:
+            async (error) => {
+              console.error(
+                "GEMINI LIVE ERROR:",
+                error
               );
 
-              break;
-            }
+              session.status =
+                "failed";
 
-            default: {
+              session.lastError =
+                error.message;
+
+              await session.save();
+
               sendSocketMessage(
                 socket,
                 {
@@ -256,71 +390,244 @@ const handleRealtimeConnection =
                     "session:error",
 
                   message:
-                    `Unsupported event: ${
-                      message.event ||
-                      "unknown"
-                    }`,
+                    error.message ||
+                    "Gemini Live failed.",
                 }
               );
+            },
+
+          onClose:
+            async ({
+              code,
+              reason,
+            }) => {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "gemini:closed",
+
+                  code,
+                  reason,
+                }
+              );
+            },
+        });
+
+      socket.on(
+        "message",
+        async (rawMessage) => {
+          try {
+            const message =
+              JSON.parse(
+                rawMessage.toString()
+              );
+
+            switch (
+              message.event
+            ) {
+              case "ping": {
+                sendSocketMessage(
+                  socket,
+                  {
+                    event: "pong",
+                    timestamp:
+                      Date.now(),
+                  }
+                );
+
+                break;
+              }
+
+              case "audio:input": {
+                if (
+                  !message.audio
+                ) {
+                  throw new Error(
+                    "Audio data is missing."
+                  );
+                }
+
+                const pcmBuffer =
+                  Buffer.from(
+                    message.audio,
+                    "base64"
+                  );
+
+                gemini.sendAudio({
+                  buffer:
+                    pcmBuffer,
+
+                  mimeType:
+                    message.mimeType ||
+                    "audio/pcm;rate=16000",
+                });
+
+                break;
+              }
+
+              case "audio:start": {
+                gemini.activityStart();
+
+                break;
+              }
+
+              case "audio:end": {
+                gemini.activityEnd();
+
+                break;
+              }
+
+              case "audio:stream-end": {
+                gemini.endAudioStream();
+
+                break;
+              }
+
+              case "text:input": {
+                gemini.sendText(
+                  message.text
+                );
+
+                break;
+              }
+
+              case "session:stop": {
+                closing = true;
+
+                socket.close(
+                  1000,
+                  "Session ended"
+                );
+
+                break;
+              }
+
+              default: {
+                sendSocketMessage(
+                  socket,
+                  {
+                    event:
+                      "session:error",
+
+                    message:
+                      `Unsupported event: ${
+                        message.event ||
+                        "unknown"
+                      }`,
+                  }
+                );
+              }
             }
+          } catch (error) {
+            console.error(
+              "REALTIME MESSAGE ERROR:",
+              error
+            );
+
+            sendSocketMessage(
+              socket,
+              {
+                event:
+                  "session:error",
+
+                message:
+                  error.message ||
+                  "Invalid realtime message.",
+              }
+            );
           }
-        } catch (error) {
+        }
+      );
+
+      socket.on(
+        "error",
+        async (error) => {
           console.error(
-            "REALTIME MESSAGE ERROR:",
+            "REALTIME SOCKET ERROR:",
             error
           );
 
-          sendSocketMessage(
-            socket,
+          await RealtimeSession.updateOne(
             {
-              event:
-                "session:error",
+              _id:
+                session._id,
+            },
 
-              message:
-                error.message ||
-                "Invalid realtime message.",
+            {
+              status: "failed",
+
+              lastError:
+                error.message,
             }
           );
         }
-      }
-    );
+      );
 
-    socket.on(
-      "error",
-      async (error) => {
-        console.error(
-          "REALTIME SOCKET ERROR:",
-          error
-        );
-
-        await RealtimeSession.updateOne(
-          {
-            _id: session._id,
-          },
-          {
-            status: "failed",
-            lastError:
-              error.message,
+      socket.on(
+        "close",
+        async () => {
+          if (closing) {
+            console.log(
+              "Realtime session closed by client."
+            );
           }
-        );
-      }
-    );
 
-    socket.on(
-      "close",
-      async () => {
-        await RealtimeSession.updateOne(
-          {
-            _id: session._id,
-          },
-          {
-            status: "ended",
-            endedAt:
-              new Date(),
+          try {
+            gemini?.close();
+          } catch (error) {
+            console.error(
+              "GEMINI CLOSE ERROR:",
+              error.message
+            );
           }
-        );
-      }
-    );
+
+          await RealtimeSession.updateOne(
+            {
+              _id:
+                session._id,
+            },
+
+            {
+              status: "ended",
+
+              endedAt:
+                new Date(),
+            }
+          );
+        }
+      );
+    } catch (error) {
+      console.error(
+        "REALTIME SETUP ERROR:",
+        error
+      );
+
+      session.status =
+        "failed";
+
+      session.lastError =
+        error.message;
+
+      await session.save();
+
+      sendSocketMessage(
+        socket,
+        {
+          event:
+            "session:error",
+
+          message:
+            error.message ||
+            "Realtime setup failed.",
+        }
+      );
+
+      socket.close(
+        1011,
+        "Realtime setup failed"
+      );
+    }
   };
 
 const createRealtimeSocketServer =
@@ -330,6 +637,9 @@ const createRealtimeSocketServer =
         server: httpServer,
 
         path: "/realtime",
+
+        maxPayload:
+          2 * 1024 * 1024,
       });
 
     socketServer.on(
@@ -353,7 +663,7 @@ const createRealtimeSocketServer =
             return;
           }
 
-          await handleRealtimeConnection({
+          await handleConnection({
             socket,
             auth,
           });

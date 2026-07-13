@@ -9,10 +9,9 @@ const Product = require(
   "../../models/Product"
 );
 
-const RealtimeSession =
-  require(
-    "../../models/RealtimeSession"
-  );
+const RealtimeSession = require(
+  "../../models/RealtimeSession"
+);
 
 const {
   getRedis,
@@ -20,21 +19,46 @@ const {
   "../../config/redis"
 );
 
-const validateId = (
-  value,
-  label
+const validateObjectId = (
+  id,
+  fieldName
 ) => {
   if (
-    !mongoose.Types.ObjectId
-      .isValid(value)
+    !mongoose.Types.ObjectId.isValid(
+      id
+    )
   ) {
     const error = new Error(
-      `Invalid ${label}.`
+      `Invalid ${fieldName}.`
     );
 
     error.statusCode = 400;
+
     throw error;
   }
+};
+
+const getVoiceName = (twin) => {
+  const map = {
+    "Warm Female": "Kore",
+    "Soft Female": "Aoede",
+    "Luxury Female": "Leda",
+    "Young Male": "Puck",
+    "Professional Male": "Charon",
+    "Energetic Creator": "Fenrir",
+  };
+
+  const configured =
+    twin.voice?.voiceId ||
+    twin.voice?.voiceName ||
+    twin.voice?.voiceType ||
+    twin.voiceName ||
+    "Kore";
+
+  return (
+    map[configured] ||
+    configured
+  );
 };
 
 exports.createSession =
@@ -42,10 +66,10 @@ exports.createSession =
     userId,
     twinId,
     productId,
-    mode,
-    language,
+    mode = "test",
+    language = "English",
   }) => {
-    validateId(
+    validateObjectId(
       twinId,
       "Twin ID"
     );
@@ -54,6 +78,7 @@ exports.createSession =
       await Twin.findOne({
         _id: twinId,
         userId,
+
         status: {
           $ne: "inactive",
         },
@@ -65,29 +90,37 @@ exports.createSession =
       );
 
       error.statusCode = 404;
+
       throw error;
     }
 
     if (
-      !twin.appearance
-        ?.avatarUrl &&
+      !twin.appearance?.avatarUrl &&
       !twin.image
     ) {
-      throw new Error(
+      const error = new Error(
         "AI Twin avatar is not configured."
       );
+
+      error.statusCode = 400;
+
+      throw error;
     }
 
     if (!twin.isTrained) {
-      throw new Error(
+      const error = new Error(
         "Train the AI Twin before starting a realtime session."
       );
+
+      error.statusCode = 400;
+
+      throw error;
     }
 
     let product = null;
 
     if (productId) {
-      validateId(
+      validateObjectId(
         productId,
         "Product ID"
       );
@@ -105,22 +138,59 @@ exports.createSession =
           );
 
         error.statusCode = 404;
+
         throw error;
       }
     }
+
+    /*
+     * Prevent many forgotten active
+     * sessions for the same Twin.
+     */
+    await RealtimeSession.updateMany(
+      {
+        userId,
+        twinId,
+
+        status: {
+          $in: [
+            "created",
+            "connecting",
+            "active",
+          ],
+        },
+      },
+
+      {
+        status: "ended",
+        endedAt: new Date(),
+      }
+    );
 
     const session =
       await RealtimeSession.create({
         userId,
         twinId,
+
         productId:
-          product?._id || null,
+          product?._id ||
+          null,
+
         mode:
-          mode || "test",
+          mode === "live"
+            ? "live"
+            : "test",
+
         language:
-          language ||
-          twin.primaryLanguage ||
-          "English",
+          String(
+            language ||
+              twin.primaryLanguage ||
+              "English"
+          ),
+
+        voiceName:
+          getVoiceName(twin),
+
         status: "created",
       });
 
@@ -134,21 +204,36 @@ exports.createSession =
 
     await redis.set(
       `realtime-token:${socketToken}`,
+
       JSON.stringify({
         userId:
           String(userId),
+
         sessionId:
           String(session._id),
       }),
+
       "EX",
       60
     );
+
+    const baseSocketUrl =
+      String(
+        process.env.PUBLIC_WS_URL ||
+          ""
+      ).replace(/\/+$/, "");
+
+    if (!baseSocketUrl) {
+      throw new Error(
+        "PUBLIC_WS_URL is missing."
+      );
+    }
 
     return {
       session,
 
       socketUrl:
-        `${process.env.PUBLIC_WS_URL}/realtime`,
+        `${baseSocketUrl}/realtime`,
 
       socketToken,
     };
@@ -159,7 +244,7 @@ exports.getSession =
     userId,
     sessionId,
   }) => {
-    validateId(
+    validateObjectId(
       sessionId,
       "session ID"
     );
@@ -178,6 +263,7 @@ exports.getSession =
       );
 
       error.statusCode = 404;
+
       throw error;
     }
 
@@ -189,7 +275,7 @@ exports.endSession =
     userId,
     sessionId,
   }) => {
-    validateId(
+    validateObjectId(
       sessionId,
       "session ID"
     );
@@ -206,6 +292,7 @@ exports.endSession =
       );
 
       error.statusCode = 404;
+
       throw error;
     }
 

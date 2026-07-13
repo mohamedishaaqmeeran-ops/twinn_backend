@@ -1,39 +1,50 @@
 const mongoose = require("mongoose");
 
+const transcriptSchema =
+  new mongoose.Schema(
+    {
+      role: {
+        type: String,
+        enum: ["user", "assistant"],
+        required: true,
+      },
+
+      text: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+    {
+      _id: false,
+    }
+  );
+
 const realtimeSessionSchema =
   new mongoose.Schema(
     {
       userId: {
-        type:
-          mongoose.Schema.Types
-            .ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
         ref: "User",
         required: true,
         index: true,
       },
 
       twinId: {
-        type:
-          mongoose.Schema.Types
-            .ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
         ref: "Twin",
         required: true,
         index: true,
       },
 
       productId: {
-        type:
-          mongoose.Schema.Types
-            .ObjectId,
+        type: mongoose.Schema.Types.ObjectId,
         ref: "Product",
-        default: null,
-      },
-
-      conversationId: {
-        type:
-          mongoose.Schema.Types
-            .ObjectId,
-        ref: "TwinConversation",
         default: null,
       },
 
@@ -48,16 +59,23 @@ const realtimeSessionSchema =
         default: "English",
       },
 
+      voiceName: {
+        type: String,
+        default: "Kore",
+      },
+
       status: {
         type: String,
         enum: [
           "created",
           "connecting",
           "active",
+          "interrupted",
           "ended",
           "failed",
         ],
         default: "created",
+        index: true,
       },
 
       geminiSessionId: {
@@ -70,8 +88,20 @@ const realtimeSessionSchema =
         default: "",
       },
 
-      startedAt: Date,
-      endedAt: Date,
+      transcripts: {
+        type: [transcriptSchema],
+        default: [],
+      },
+
+      startedAt: {
+        type: Date,
+        default: null,
+      },
+
+      endedAt: {
+        type: Date,
+        default: null,
+      },
 
       lastError: {
         type: String,
@@ -83,8 +113,7 @@ const realtimeSessionSchema =
     }
   );
 
-module.exports =
-  mongoose.model(
-    "RealtimeSession",
-    realtimeSessionSchema
-  );
+module.exports = mongoose.model(
+  "RealtimeSession",
+  realtimeSessionSchema
+);

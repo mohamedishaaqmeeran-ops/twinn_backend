@@ -1,7 +1,6 @@
-const realtimeService =
-  require(
-    "./realtime.service"
-  );
+const realtimeService = require(
+  "./realtime.service"
+);
 
 const getUserId = (req) =>
   req.user?._id ||
@@ -10,10 +9,10 @@ const getUserId = (req) =>
 const sendError = (
   res,
   error,
-  fallback
+  fallbackMessage
 ) => {
   console.error(
-    fallback,
+    fallbackMessage,
     error
   );
 
@@ -23,9 +22,10 @@ const sendError = (
     )
     .json({
       success: false,
+
       message:
         error.message ||
-        fallback,
+        fallbackMessage,
     });
 };
 
@@ -33,33 +33,34 @@ exports.createSession =
   async (req, res) => {
     try {
       const result =
-        await realtimeService
-          .createSession({
-            userId:
-              getUserId(req),
+        await realtimeService.createSession({
+          userId:
+            getUserId(req),
 
-            twinId:
-              req.body.twinId,
+          twinId:
+            req.body.twinId,
 
-            productId:
-              req.body
-                .productId ||
-              null,
+          productId:
+            req.body.productId ||
+            null,
 
-            mode:
-              req.body.mode ||
-              "test",
+          mode:
+            req.body.mode ||
+            "test",
 
-            language:
-              req.body
-                .language ||
-              "English",
-          });
+          language:
+            req.body.language ||
+            "English",
+        });
 
       return res
         .status(201)
         .json({
           success: true,
+
+          message:
+            "Realtime session created.",
+
           ...result,
         });
     } catch (error) {
@@ -75,14 +76,13 @@ exports.getSession =
   async (req, res) => {
     try {
       const session =
-        await realtimeService
-          .getSession({
-            userId:
-              getUserId(req),
+        await realtimeService.getSession({
+          userId:
+            getUserId(req),
 
-            sessionId:
-              req.params.id,
-          });
+          sessionId:
+            req.params.id,
+        });
 
       return res.json({
         success: true,
@@ -101,19 +101,20 @@ exports.endSession =
   async (req, res) => {
     try {
       const session =
-        await realtimeService
-          .endSession({
-            userId:
-              getUserId(req),
+        await realtimeService.endSession({
+          userId:
+            getUserId(req),
 
-            sessionId:
-              req.params.id,
-          });
+          sessionId:
+            req.params.id,
+        });
 
       return res.json({
         success: true,
+
         message:
           "Realtime session ended.",
+
         session,
       });
     } catch (error) {

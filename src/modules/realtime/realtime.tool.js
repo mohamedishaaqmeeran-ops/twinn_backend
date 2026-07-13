@@ -1,11 +1,27 @@
+const mongoose = require("mongoose");
+
 const Product = require(
   "../../models/Product"
 );
 
-const embeddingService =
-  require(
-    "../twins/embedding.service"
-  );
+const embeddingService = require(
+  "../twin/embedding.service"
+);
+
+const validateObjectId = (
+  id,
+  fieldName
+) => {
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      id
+    )
+  ) {
+    throw new Error(
+      `Invalid ${fieldName}.`
+    );
+  }
+};
 
 exports.searchKnowledge =
   async ({
@@ -13,37 +29,72 @@ exports.searchKnowledge =
     twinId,
     query,
   }) => {
+    const normalizedQuery =
+      String(query || "").trim();
+
+    if (!normalizedQuery) {
+      return {
+        found: false,
+        message:
+          "Knowledge search query is empty.",
+        results: [],
+      };
+    }
+
     const chunks =
-      await embeddingService
-        .searchKnowledge({
-          userId,
-          twinId,
-          query,
-          limit: 5,
-        });
+      await embeddingService.searchKnowledge({
+        userId,
+        twinId,
+        query: normalizedQuery,
+        limit: Number(
+          process.env.RAG_TOP_K || 5
+        ),
+      });
 
-    return chunks.map(
-      (chunk) => ({
-        title:
-          chunk.sourceTitle,
+    if (!chunks.length) {
+      return {
+        found: false,
+        message:
+          "No relevant uploaded knowledge was found.",
+        results: [],
+      };
+    }
 
-        sourceType:
-          chunk.sourceType,
+    return {
+      found: true,
 
-        content:
-          chunk.content,
+      results: chunks.map(
+        (chunk) => ({
+          id: String(chunk._id),
 
-        similarity:
-          chunk.similarity,
-      })
-    );
+          title:
+            chunk.sourceTitle ||
+            "Knowledge",
+
+          sourceType:
+            chunk.sourceType ||
+            "text",
+
+          content:
+            chunk.content,
+
+          similarity:
+            chunk.similarity,
+        })
+      ),
+    };
   };
 
-exports.getProduct =
+exports.getProductDetails =
   async ({
     userId,
     productId,
   }) => {
+    validateObjectId(
+      productId,
+      "product ID"
+    );
+
     const product =
       await Product.findOne({
         _id: productId,
@@ -51,21 +102,52 @@ exports.getProduct =
       }).lean();
 
     if (!product) {
-      throw new Error(
-        "Product not found."
-      );
+      return {
+        found: false,
+        message:
+          "Product was not found.",
+      };
     }
 
     return {
-      id: product._id,
-      name: product.name,
-      description:
-        product.description || "",
-      price:
-        product.price ?? null,
-      stock:
-        product.stock ?? null,
-      status:
-        product.status || "",
+      found: true,
+
+      product: {
+        id: String(product._id),
+
+        name:
+          product.name || "",
+
+        description:
+          product.description || "",
+
+        category:
+          product.category || "",
+
+        price:
+          product.price ?? null,
+
+        offerPrice:
+          product.offerPrice ??
+          product.discountPrice ??
+          null,
+
+        stock:
+          product.stock ??
+          product.quantity ??
+          null,
+
+        status:
+          product.status || "",
+
+        currency:
+          product.currency ||
+          "INR",
+
+        image:
+          product.image ||
+          product.imageUrl ||
+          "",
+      },
     };
   };
