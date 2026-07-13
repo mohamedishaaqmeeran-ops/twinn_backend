@@ -207,115 +207,154 @@ exports.createGeminiLiveSession =
           GEMINI_LIVE_MODEL,
 
         callbacks: {
-          onopen() {
-            onReady?.({
-              sessionId:
-                internalSessionId,
-            });
-          },
+  onopen() {
+    console.log(
+      "GEMINI LIVE OPEN:",
+      {
+        model:
+          GEMINI_LIVE_MODEL,
 
-          async onmessage(
-            message
-          ) {
-            try {
-              const userText =
-                message
-                  ?.serverContent
-                  ?.inputTranscription
-                  ?.text;
+        sessionId:
+          internalSessionId,
+      }
+    );
 
-              if (userText) {
-                onUserTranscript?.(
-                  userText
-                );
-              }
+    onReady?.({
+      sessionId:
+        internalSessionId,
+    });
+  },
 
-              const assistantText =
-                message
-                  ?.serverContent
-                  ?.outputTranscription
-                  ?.text;
+  async onmessage(message) {
+    try {
+      const userText =
+        message
+          ?.serverContent
+          ?.inputTranscription
+          ?.text;
 
-              if (assistantText) {
-                onAssistantTranscript?.(
-                  assistantText
-                );
-              }
+      if (userText) {
+        onUserTranscript?.(
+          userText
+        );
+      }
 
-              if (
-                message
-                  ?.serverContent
-                  ?.interrupted
-              ) {
-                onInterrupted?.();
-              }
+      const assistantText =
+        message
+          ?.serverContent
+          ?.outputTranscription
+          ?.text;
 
-              const encodedAudioParts =
-                extractAudioParts(
-                  message
-                );
+      if (assistantText) {
+        onAssistantTranscript?.(
+          assistantText
+        );
+      }
 
-              for (
-                const encodedAudio of
-                encodedAudioParts
-              ) {
-                const audioBuffer =
-                  Buffer.from(
-                    encodedAudio,
-                    "base64"
-                  );
+      if (
+        message
+          ?.serverContent
+          ?.interrupted
+      ) {
+        onInterrupted?.();
+      }
 
-                await onAudio?.(
-                  audioBuffer
-                );
-              }
+      const encodedAudioParts =
+        extractAudioParts(
+          message
+        );
 
-              if (
-                message.toolCall
-                  ?.functionCalls
-                  ?.length
-              ) {
-                await handleToolCalls(
-                  message
-                );
-              }
+      for (
+        const encodedAudio of
+        encodedAudioParts
+      ) {
+        await onAudio?.(
+          Buffer.from(
+            encodedAudio,
+            "base64"
+          )
+        );
+      }
 
-              if (
-                message
-                  ?.serverContent
-                  ?.turnComplete
-              ) {
-                onTurnComplete?.();
-              }
-            } catch (error) {
-              onError?.(error);
-            }
-          },
+      if (
+        message.toolCall
+          ?.functionCalls
+          ?.length
+      ) {
+        await handleToolCalls(
+          message
+        );
+      }
 
-          onerror(event) {
-            const message =
-              event?.message ||
-              event?.error?.message ||
-              "Gemini Live connection error.";
+      if (
+        message
+          ?.serverContent
+          ?.turnComplete
+      ) {
+        onTurnComplete?.();
+      }
+    } catch (error) {
+      console.error(
+        "GEMINI MESSAGE PROCESSING ERROR:",
+        error
+      );
 
-            onError?.(
-              new Error(message)
-            );
-          },
+      onError?.(error);
+    }
+  },
 
-          onclose(event) {
-            closed = true;
+  onerror(event) {
+    console.error(
+      "GEMINI LIVE SDK ERROR:",
+      {
+        message:
+          event?.message,
 
-            onClose?.({
-              code:
-                event?.code,
+        errorMessage:
+          event?.error
+            ?.message,
 
-              reason:
-                event?.reason ||
-                "Gemini Live closed.",
-            });
-          },
-        },
+        event,
+      }
+    );
+
+    const message =
+      event?.message ||
+      event?.error?.message ||
+      "Gemini Live connection error.";
+
+    onError?.(
+      new Error(message)
+    );
+  },
+
+  onclose(event) {
+    closed = true;
+
+    console.error(
+      "GEMINI LIVE SDK CLOSED:",
+      {
+        code:
+          event?.code,
+
+        reason:
+          event?.reason,
+
+        wasClean:
+          event?.wasClean,
+      }
+    );
+
+    onClose?.({
+      code:
+        event?.code,
+
+      reason:
+        event?.reason ||
+        "Gemini Live closed.",
+    });
+  },
+},
 
         config: {
           responseModalities: [
