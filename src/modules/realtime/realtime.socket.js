@@ -14,29 +14,37 @@ const Product = require(
 
 const {
   getRedis,
-} = require(
-  "../../config/redis"
-);
+} = require("../../config/redis");
 
 const {
   createGeminiLiveSession,
-} = require(
-  "./geminiLive.service"
-);
+} = require("./geminiLive.service");
+
+/* =========================================================
+   SEND MESSAGE
+========================================================= */
 
 const sendSocketMessage = (
   socket,
   payload
 ) => {
   if (
-    socket.readyState ===
+    socket.readyState !==
     WebSocket.OPEN
   ) {
-    socket.send(
-      JSON.stringify(payload)
-    );
+    return false;
   }
+
+  socket.send(
+    JSON.stringify(payload)
+  );
+
+  return true;
 };
+
+/* =========================================================
+   AUTHENTICATE ONE-TIME SOCKET TOKEN
+========================================================= */
 
 const authenticateSocket =
   async (request) => {
@@ -56,6 +64,10 @@ const authenticateSocket =
       );
 
     if (!token) {
+      console.error(
+        "WEBSOCKET AUTH ERROR: token missing"
+      );
+
       return null;
     }
 
@@ -66,21 +78,27 @@ const authenticateSocket =
       `realtime-token:${token}`;
 
     const stored =
-      await redis.get(
-        redisKey
-      );
+      await redis.get(redisKey);
 
     if (!stored) {
+      console.error(
+        "WEBSOCKET AUTH ERROR: token invalid or expired"
+      );
+
       return null;
     }
 
     /*
-     * One-time WebSocket token.
+     * Token can be used only once.
      */
     await redis.del(redisKey);
 
     return JSON.parse(stored);
   };
+
+/* =========================================================
+   SAVE TRANSCRIPT
+========================================================= */
 
 const appendTranscript =
   async ({
@@ -99,7 +117,6 @@ const appendTranscript =
       {
         _id: sessionId,
       },
-
       {
         $push: {
           transcripts: {
@@ -111,7 +128,6 @@ const appendTranscript =
                   new Date(),
               },
             ],
-
             $slice: -100,
           },
         },
@@ -119,12 +135,17 @@ const appendTranscript =
     );
   };
 
-const handleConnection =
+/* =========================================================
+   HANDLE AUTHENTICATED CONNECTION
+========================================================= */
+
+const handleRealtimeConnection =
   async ({
     socket,
     auth,
   }) => {
     let gemini = null;
+    let geminiReady = false;
     let closing = false;
 
     const session =
@@ -136,45 +157,347 @@ const handleConnection =
     if (!session) {
       socket.close(
         4004,
-        "Session not found"
+        "Realtime session not found"
       );
 
       return;
     }
 
-    try {
-      session.status =
-        "connecting";
+    const twin =
+      await Twin.findOne({
+        _id: session.twinId,
+        userId: auth.userId,
+      });
 
-      await session.save();
+    if (!twin) {
+      socket.close(
+        4004,
+        "AI Twin not found"
+      );
 
-      const twin =
-        await Twin.findOne({
-          _id: session.twinId,
-          userId: auth.userId,
+      return;
+    }
+
+    let product = null;
+
+    if (session.productId) {
+      product =
+        await Product.findOne({
+          _id:
+            session.productId,
+
+          userId:
+            auth.userId,
         });
+    }
 
-      if (!twin) {
-        throw new Error(
-          "AI Twin not found."
+    session.status =
+      "connecting";
+
+    await session.save();
+
+    /*
+     * Tell the frontend immediately that the
+     * WebSocket and Redis authentication worked.
+     */
+    sendSocketMessage(
+      socket,
+      {
+        event:
+          "socket:connected",
+
+        sessionId:
+          String(session._id),
+
+        message:
+          "WebSocket connected. Initializing Gemini Live...",
+      }
+    );
+
+    console.log(
+      "WEBSOCKET SESSION CONNECTED:",
+      String(session._id)
+    );
+
+    /* =====================================================
+       REGISTER SOCKET HANDLERS BEFORE GEMINI
+    ===================================================== */
+
+    socket.on(
+      "message",
+      async (rawMessage) => {
+        try {
+          const message =
+            JSON.parse(
+              rawMessage.toString()
+            );
+
+          console.log(
+            "WEBSOCKET MESSAGE:",
+            message.event
+          );
+
+          switch (
+            message.event
+          ) {
+            case "ping": {
+              sendSocketMessage(
+                socket,
+                {
+                  event: "pong",
+                  timestamp:
+                    Date.now(),
+                  geminiReady,
+                }
+              );
+
+              break;
+            }
+
+            case "text:input": {
+              if (!geminiReady) {
+                sendSocketMessage(
+                  socket,
+                  {
+                    event:
+                      "session:error",
+
+                    message:
+                      "Gemini Live is still initializing.",
+                  }
+                );
+
+                break;
+              }
+
+              gemini.sendText(
+                message.text
+              );
+
+              break;
+            }
+
+            case "audio:start": {
+              if (!geminiReady) {
+                sendSocketMessage(
+                  socket,
+                  {
+                    event:
+                      "session:error",
+
+                    message:
+                      "Gemini Live is still initializing.",
+                  }
+                );
+
+                break;
+              }
+
+              gemini.activityStart();
+
+              break;
+            }
+
+            case "audio:input": {
+              if (!geminiReady) {
+                break;
+              }
+
+              if (
+                !message.audio
+              ) {
+                throw new Error(
+                  "Audio data is missing."
+                );
+              }
+
+              const audioBuffer =
+                Buffer.from(
+                  message.audio,
+                  "base64"
+                );
+
+              gemini.sendAudio({
+                buffer:
+                  audioBuffer,
+
+                mimeType:
+                  message.mimeType ||
+                  "audio/pcm;rate=16000",
+              });
+
+              break;
+            }
+
+            case "audio:end": {
+              if (geminiReady) {
+                gemini.activityEnd();
+              }
+
+              break;
+            }
+
+            case "audio:stream-end": {
+              if (geminiReady) {
+                gemini.endAudioStream();
+              }
+
+              break;
+            }
+
+            case "conversation:interrupt": {
+              if (geminiReady) {
+                try {
+                  gemini.activityEnd();
+                } catch (error) {
+                  console.error(
+                    "GEMINI INTERRUPT ERROR:",
+                    error.message
+                  );
+                }
+              }
+
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "conversation:interrupted",
+                }
+              );
+
+              break;
+            }
+
+            case "session:stop": {
+              closing = true;
+
+              socket.close(
+                1000,
+                "Session ended"
+              );
+
+              break;
+            }
+
+            default: {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "session:error",
+
+                  message:
+                    `Unsupported event: ${
+                      message.event ||
+                      "unknown"
+                    }`,
+                }
+              );
+            }
+          }
+        } catch (error) {
+          console.error(
+            "WEBSOCKET MESSAGE ERROR:",
+            error
+          );
+
+          sendSocketMessage(
+            socket,
+            {
+              event:
+                "session:error",
+
+              message:
+                error.message ||
+                "Invalid realtime message.",
+            }
+          );
+        }
+      }
+    );
+
+    socket.on(
+      "error",
+      async (error) => {
+        console.error(
+          "WEBSOCKET CLIENT ERROR:",
+          error
+        );
+
+        await RealtimeSession.updateOne(
+          {
+            _id:
+              session._id,
+          },
+          {
+            status: "failed",
+            lastError:
+              error.message,
+          }
         );
       }
+    );
 
-      let product = null;
+    socket.on(
+      "close",
+      async (
+        code,
+        reason
+      ) => {
+        console.log(
+          "WEBSOCKET CLOSED:",
+          {
+            sessionId:
+              String(
+                session._id
+              ),
 
-      if (session.productId) {
-        product =
-          await Product.findOne({
+            code,
+
+            reason:
+              reason.toString(),
+
+            closing,
+          }
+        );
+
+        geminiReady = false;
+
+        try {
+          gemini?.close();
+        } catch (error) {
+          console.error(
+            "GEMINI CLOSE ERROR:",
+            error.message
+          );
+        }
+
+        await RealtimeSession.updateOne(
+          {
             _id:
-              session.productId,
-
-            userId:
-              auth.userId,
-          });
+              session._id,
+          },
+          {
+            status: "ended",
+            endedAt:
+              new Date(),
+          }
+        );
       }
+    );
 
-      gemini =
-        await createGeminiLiveSession({
+    /* =====================================================
+       START GEMINI AFTER HANDLERS ARE READY
+    ===================================================== */
+
+    try {
+      console.log(
+        "CREATING GEMINI LIVE SESSION:",
+        String(session._id)
+      );
+
+      const geminiPromise =
+        createGeminiLiveSession({
           userId:
             auth.userId,
 
@@ -184,83 +507,97 @@ const handleConnection =
           language:
             session.language,
 
-          onReady: async ({
-            sessionId:
-              geminiSessionId,
-          }) => {
-            session.geminiSessionId =
-              geminiSessionId;
+          onReady:
+            async ({
+              sessionId:
+                geminiSessionId,
+            }) => {
+              geminiReady =
+                true;
 
-            session.status =
-              "active";
+              session.geminiSessionId =
+                geminiSessionId;
 
-            session.startedAt =
-              new Date();
+              session.status =
+                "active";
 
-            await session.save();
+              session.startedAt =
+                new Date();
 
-            sendSocketMessage(
-              socket,
-              {
-                event:
-                  "session:ready",
+              session.lastError =
+                "";
 
-                sessionId:
-                  String(
-                    session._id
-                  ),
+              await session.save();
 
-                audio: {
-                  inputSampleRate:
-                    16000,
+              console.log(
+                "GEMINI LIVE READY:",
+                String(
+                  session._id
+                )
+              );
 
-                  outputSampleRate:
-                    24000,
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "session:ready",
 
-                  channels: 1,
-
-                  encoding:
-                    "pcm_s16le",
-                },
-
-                twin: {
-                  id:
+                  sessionId:
                     String(
-                      twin._id
+                      session._id
                     ),
 
-                  name:
-                    twin.name,
+                  twin: {
+                    id:
+                      String(
+                        twin._id
+                      ),
 
-                  avatarUrl:
-                    twin
-                      .appearance
-                      ?.avatarUrl ||
-                    twin.image ||
-                    "",
+                    name:
+                      twin.name,
 
-                  voiceName:
-                    session.voiceName,
+                    avatarUrl:
+                      twin
+                        .appearance
+                        ?.avatarUrl ||
+                      twin.image ||
+                      "",
 
-                  language:
-                    session.language,
-                },
+                    language:
+                      session.language,
 
-                product:
-                  product
-                    ? {
-                        id:
-                          String(
-                            product._id
-                          ),
+                    voiceName:
+                      session.voiceName,
+                  },
 
-                        name:
-                          product.name,
-                      }
-                    : null,
-              }
-            );
-          },
+                  product:
+                    product
+                      ? {
+                          id:
+                            String(
+                              product._id
+                            ),
+
+                          name:
+                            product.name,
+                        }
+                      : null,
+
+                  audio: {
+                    inputSampleRate:
+                      16000,
+
+                    outputSampleRate:
+                      24000,
+
+                    channels: 1,
+
+                    encoding:
+                      "pcm_s16le",
+                  },
+                }
+              );
+            },
 
           onAudio:
             async (
@@ -277,11 +614,11 @@ const handleConnection =
                       "base64"
                     ),
 
-                  mimeType:
-                    "audio/pcm;rate=24000",
-
                   sampleRate:
                     24000,
+
+                  mimeType:
+                    "audio/pcm;rate=24000",
                 }
               );
             },
@@ -331,39 +668,24 @@ const handleConnection =
               });
             },
 
-          onInterrupted:
-            async () => {
-              session.status =
-                "interrupted";
-
-              await session.save();
-
-              sendSocketMessage(
-                socket,
-                {
-                  event:
-                    "conversation:interrupted",
-                }
-              );
-            },
-
           onTurnComplete:
-            async () => {
-              if (
-                session.status ===
-                "interrupted"
-              ) {
-                session.status =
-                  "active";
-
-                await session.save();
-              }
-
+            () => {
               sendSocketMessage(
                 socket,
                 {
                   event:
                     "conversation:turn-complete",
+                }
+              );
+            },
+
+          onInterrupted:
+            () => {
+              sendSocketMessage(
+                socket,
+                {
+                  event:
+                    "conversation:interrupted",
                 }
               );
             },
@@ -375,13 +697,22 @@ const handleConnection =
                 error
               );
 
-              session.status =
-                "failed";
+              geminiReady =
+                false;
 
-              session.lastError =
-                error.message;
+              await RealtimeSession.updateOne(
+                {
+                  _id:
+                    session._id,
+                },
+                {
+                  status:
+                    "failed",
 
-              await session.save();
+                  lastError:
+                    error.message,
+                }
+              );
 
               sendSocketMessage(
                 socket,
@@ -397,10 +728,21 @@ const handleConnection =
             },
 
           onClose:
-            async ({
+            ({
               code,
               reason,
             }) => {
+              geminiReady =
+                false;
+
+              console.error(
+                "GEMINI LIVE CLOSED:",
+                {
+                  code,
+                  reason,
+                }
+              );
+
               sendSocketMessage(
                 socket,
                 {
@@ -414,213 +756,34 @@ const handleConnection =
             },
         });
 
-      socket.on(
-        "message",
-        async (rawMessage) => {
-          try {
-            const message =
-              JSON.parse(
-                rawMessage.toString()
-              );
-
-            switch (
-              message.event
-            ) {
-              case "ping": {
-                sendSocketMessage(
-                  socket,
-                  {
-                    event: "pong",
-                    timestamp:
-                      Date.now(),
-                  }
+      const timeoutPromise =
+        new Promise(
+          (_, reject) => {
+            setTimeout(
+              () => {
+                reject(
+                  new Error(
+                    "Gemini Live initialization timed out after 20 seconds."
+                  )
                 );
-
-                break;
-              }
-
-              case "audio:input": {
-                if (
-                  !message.audio
-                ) {
-                  throw new Error(
-                    "Audio data is missing."
-                  );
-                }
-
-                const pcmBuffer =
-                  Buffer.from(
-                    message.audio,
-                    "base64"
-                  );
-
-                gemini.sendAudio({
-                  buffer:
-                    pcmBuffer,
-
-                  mimeType:
-                    message.mimeType ||
-                    "audio/pcm;rate=16000",
-                });
-
-                break;
-              }
-
-              case "audio:start": {
-                gemini.activityStart();
-
-                break;
-              }
-
-              case "audio:end": {
-                gemini.activityEnd();
-
-                break;
-              }
-
-              case "audio:stream-end": {
-                gemini.endAudioStream();
-
-                break;
-              }
-
-              case "text:input": {
-                gemini.sendText(
-                  message.text
-                );
-
-                break;
-              }
-case "conversation:interrupt": {
-  try {
-    gemini.activityEnd();
-  } catch (error) {
-    console.error(
-      "INTERRUPT ERROR:",
-      error.message
-    );
-  }
-
-  sendSocketMessage(
-    socket,
-    {
-      event:
-        "conversation:interrupted",
-    }
-  );
-
-  break;
-}
-              case "session:stop": {
-                closing = true;
-
-                socket.close(
-                  1000,
-                  "Session ended"
-                );
-
-                break;
-              }
-
-              default: {
-                sendSocketMessage(
-                  socket,
-                  {
-                    event:
-                      "session:error",
-
-                    message:
-                      `Unsupported event: ${
-                        message.event ||
-                        "unknown"
-                      }`,
-                  }
-                );
-              }
-            }
-          } catch (error) {
-            console.error(
-              "REALTIME MESSAGE ERROR:",
-              error
-            );
-
-            sendSocketMessage(
-              socket,
-              {
-                event:
-                  "session:error",
-
-                message:
-                  error.message ||
-                  "Invalid realtime message.",
-              }
+              },
+              20000
             );
           }
-        }
-      );
+        );
 
-      socket.on(
-        "error",
-        async (error) => {
-          console.error(
-            "REALTIME SOCKET ERROR:",
-            error
-          );
-
-          await RealtimeSession.updateOne(
-            {
-              _id:
-                session._id,
-            },
-
-            {
-              status: "failed",
-
-              lastError:
-                error.message,
-            }
-          );
-        }
-      );
-
-      socket.on(
-        "close",
-        async () => {
-          if (closing) {
-            console.log(
-              "Realtime session closed by client."
-            );
-          }
-
-          try {
-            gemini?.close();
-          } catch (error) {
-            console.error(
-              "GEMINI CLOSE ERROR:",
-              error.message
-            );
-          }
-
-          await RealtimeSession.updateOne(
-            {
-              _id:
-                session._id,
-            },
-
-            {
-              status: "ended",
-
-              endedAt:
-                new Date(),
-            }
-          );
-        }
-      );
+      gemini =
+        await Promise.race([
+          geminiPromise,
+          timeoutPromise,
+        ]);
     } catch (error) {
       console.error(
-        "REALTIME SETUP ERROR:",
+        "REALTIME GEMINI SETUP ERROR:",
         error
       );
+
+      geminiReady = false;
 
       session.status =
         "failed";
@@ -638,27 +801,46 @@ case "conversation:interrupt": {
 
           message:
             error.message ||
-            "Realtime setup failed.",
+            "Gemini Live setup failed.",
         }
       );
 
-      socket.close(
-        1011,
-        "Realtime setup failed"
-      );
+      /*
+       * Keep the WebSocket open briefly so the
+       * browser can receive the error message.
+       */
+      setTimeout(() => {
+        if (
+          socket.readyState ===
+          WebSocket.OPEN
+        ) {
+          socket.close(
+            1011,
+            "Gemini Live setup failed"
+          );
+        }
+      }, 500);
     }
   };
+
+/* =========================================================
+   CREATE WEBSOCKET SERVER
+========================================================= */
 
 const createRealtimeSocketServer =
   (httpServer) => {
     const socketServer =
       new WebSocket.Server({
-        server: httpServer,
+        server:
+          httpServer,
 
-        path: "/realtime",
+        path:
+          "/realtime",
 
         maxPayload:
-          2 * 1024 * 1024,
+          2 *
+          1024 *
+          1024,
       });
 
     socketServer.on(
@@ -667,6 +849,11 @@ const createRealtimeSocketServer =
         socket,
         request
       ) => {
+        console.log(
+          "INCOMING WEBSOCKET:",
+          request.url
+        );
+
         try {
           const auth =
             await authenticateSocket(
@@ -682,13 +869,18 @@ const createRealtimeSocketServer =
             return;
           }
 
-          await handleConnection({
+          console.log(
+            "WEBSOCKET AUTHENTICATED:",
+            auth.sessionId
+          );
+
+          await handleRealtimeConnection({
             socket,
             auth,
           });
         } catch (error) {
           console.error(
-            "REALTIME CONNECTION ERROR:",
+            "WEBSOCKET CONNECTION ERROR:",
             error
           );
 
@@ -700,14 +892,21 @@ const createRealtimeSocketServer =
 
               message:
                 error.message ||
-                "Realtime connection failed.",
+                "WebSocket connection failed.",
             }
           );
 
-          socket.close(
-            1011,
-            "Connection failed"
-          );
+          setTimeout(() => {
+            if (
+              socket.readyState ===
+              WebSocket.OPEN
+            ) {
+              socket.close(
+                1011,
+                "Connection failed"
+              );
+            }
+          }, 500);
         }
       }
     );
