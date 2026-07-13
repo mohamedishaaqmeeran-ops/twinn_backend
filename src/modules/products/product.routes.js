@@ -3,7 +3,7 @@ const router = express.Router();
 
 const controller = require("./product.controller");
 const auth = require("../../middleware/auth.middleware");
-const upload = require("../../config/cloudinary");
+const upload = require("../../config/productUpload");
 
 router.post("/", auth.protect, upload.array("images", 5), controller.create);
 
