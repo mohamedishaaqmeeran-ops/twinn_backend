@@ -1,30 +1,107 @@
 require("dotenv").config();
 
-const app = require("./src/app");
-const connectDB = require("./src/config/db");
+const http =
+  require("http");
+
+const app =
+  require("./src/app");
+
+const connectDB =
+  require(
+    "./src/config/db"
+  );
+
+const {
+  connectRedis,
+  closeRedis,
+} = require(
+  "./src/config/redis"
+);
 
 const {
   startScheduleWorker,
-} = require("./src/modules/schedule/schedule.worker");
+} = require(
+  "./src/modules/schedule/schedule.worker"
+);
 
-const PORT = process.env.PORT || 8000;
+const {
+  createRealtimeSocketServer,
+} = require(
+  "./src/modules/realtime/realtime.socket"
+);
 
-connectDB()
-  .then(() => {
-    console.log("MongoDB connected successfully");
+const PORT =
+  Number(
+    process.env.PORT
+  ) || 8000;
 
-    // Start automatic live schedule checking
-    startScheduleWorker();
+const server =
+  http.createServer(app);
 
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch((error) => {
-    console.error(
-      "MongoDB connection failed:",
-      error.message
+createRealtimeSocketServer(
+  server
+);
+
+const startServer =
+  async () => {
+    try {
+      await connectDB();
+
+      console.log(
+        "MongoDB connected successfully"
+      );
+
+      await connectRedis();
+
+      console.log(
+        "Redis connected successfully"
+      );
+
+      startScheduleWorker();
+
+      server.listen(
+        PORT,
+        () => {
+          console.log(
+            `Server running on port ${PORT}`
+          );
+        }
+      );
+    } catch (error) {
+      console.error(
+        "Server startup failed:",
+        error.message
+      );
+
+      process.exit(1);
+    }
+  };
+
+const shutdown =
+  async (signal) => {
+    console.log(
+      `${signal} received`
     );
 
-    process.exit(1);
-  });
+    server.close(
+      async () => {
+        await closeRedis();
+
+        process.exit(0);
+      }
+    );
+  };
+
+process.on(
+  "SIGTERM",
+  () =>
+    shutdown("SIGTERM")
+);
+
+process.on(
+  "SIGINT",
+  () =>
+    shutdown("SIGINT")
+);
+
+startServer();

@@ -12,11 +12,19 @@ const avatarRoutes = require("../modules/avatar/avatar.routes");
 const creditsRoutes = require("../modules/credits/credits.routes");
 const adminRoutes = require("../modules/admin/admin.routes");
 const scheduleRoutes = require("../modules/schedule/schedule.routes");
+const realtimeRoutes =
+  require(
+    "../modules/realtime/realtime.routes"
+  );
 
 router.use("/payments", paymentRoutes);
 router.use("/auth", authRoutes);
 router.use("/products", productRoutes);
 router.use("/social", socialRoutes);
+router.use(
+  "/realtime",
+  realtimeRoutes
+);
 router.use("/waitlist", waitlistRoutes);
 router.use("/live", liveRoutes);
 router.use(
