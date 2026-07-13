@@ -1,15 +1,8 @@
 require("dotenv").config();
 
-const http =
-  require("http");
+const http = require("http");
 
-const app =
-  require("./src/app");
-
-const connectDB =
-  require(
-    "./src/config/db"
-  );
+const app = require("./src/app");
 
 const {
   connectRedis,
@@ -19,21 +12,14 @@ const {
 );
 
 const {
-  startScheduleWorker,
-} = require(
-  "./src/modules/schedule/schedule.worker"
-);
-
-const {
   createRealtimeSocketServer,
 } = require(
   "./src/modules/realtime/realtime.socket"
 );
 
 const PORT =
-  Number(
-    process.env.PORT
-  ) || 8000;
+  Number(process.env.PORT) ||
+  8000;
 
 const server =
   http.createServer(app);
@@ -42,66 +28,81 @@ createRealtimeSocketServer(
   server
 );
 
-const startServer =
-  async () => {
-    try {
-      await connectDB();
+const startServer = async () => {
+  try {
+    /*
+     * Keep MongoDB connection in only one
+     * place. If app.js already connects to
+     * MongoDB, do not connect again here.
+     */
 
-      console.log(
-        "MongoDB connected successfully"
-      );
-
-      await connectRedis();
-
-      console.log(
-        "Redis connected successfully"
-      );
-
-      startScheduleWorker();
-
-      server.listen(
-        PORT,
-        () => {
-          console.log(
-            `Server running on port ${PORT}`
-          );
-        }
-      );
-    } catch (error) {
-      console.error(
-        "Server startup failed:",
-        error.message
-      );
-
-      process.exit(1);
-    }
-  };
-
-const shutdown =
-  async (signal) => {
     console.log(
-      `${signal} received`
+      "Connecting to Redis..."
     );
 
-    server.close(
-      async () => {
-        await closeRedis();
+    await connectRedis();
 
-        process.exit(0);
+    console.log(
+      "Redis connected successfully"
+    );
+
+    server.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+        console.log(
+          `Server running on port ${PORT}`
+        );
       }
     );
-  };
+  } catch (error) {
+    console.error(
+      "SERVER STARTUP ERROR:"
+    );
+
+    console.error(
+      "Message:",
+      error?.message || error
+    );
+
+    if (error?.code) {
+      console.error(
+        "Code:",
+        error.code
+      );
+    }
+
+    if (error?.stack) {
+      console.error(
+        error.stack
+      );
+    }
+
+    process.exit(1);
+  }
+};
+
+const shutdown = async (
+  signal
+) => {
+  console.log(
+    `${signal} received. Shutting down...`
+  );
+
+  server.close(async () => {
+    await closeRedis();
+    process.exit(0);
+  });
+};
 
 process.on(
   "SIGTERM",
-  () =>
-    shutdown("SIGTERM")
+  () => shutdown("SIGTERM")
 );
 
 process.on(
   "SIGINT",
-  () =>
-    shutdown("SIGINT")
+  () => shutdown("SIGINT")
 );
 
 startServer();
