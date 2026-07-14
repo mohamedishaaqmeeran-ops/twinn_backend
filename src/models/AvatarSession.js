@@ -4,21 +4,24 @@ const avatarSessionSchema =
   new mongoose.Schema(
     {
       userId: {
-        type: mongoose.Schema.Types.ObjectId,
+        type:
+          mongoose.Schema.Types.ObjectId,
         ref: "User",
         required: true,
         index: true,
       },
 
       twinId: {
-        type: mongoose.Schema.Types.ObjectId,
+        type:
+          mongoose.Schema.Types.ObjectId,
         ref: "Twin",
         required: true,
         index: true,
       },
 
       realtimeSessionId: {
-        type: mongoose.Schema.Types.ObjectId,
+        type:
+          mongoose.Schema.Types.ObjectId,
         ref: "RealtimeSession",
         default: null,
       },
@@ -57,12 +60,15 @@ const avatarSessionSchema =
       },
 
       offer: {
-        type: mongoose.Schema.Types.Mixed,
+        type:
+          mongoose.Schema.Types.Mixed,
         default: null,
       },
 
       iceServers: {
-        type: [mongoose.Schema.Types.Mixed],
+        type: [
+          mongoose.Schema.Types.Mixed,
+        ],
         default: [],
       },
 
@@ -86,7 +92,9 @@ const avatarSessionSchema =
     }
   );
 
-module.exports = mongoose.model(
-  "AvatarSession",
-  avatarSessionSchema
-);
+module.exports =
+  mongoose.models.AvatarSession ||
+  mongoose.model(
+    "AvatarSession",
+    avatarSessionSchema
+  );

@@ -1,180 +1,370 @@
-const DID_API_URL =
-  String(
-    process.env.DID_API_URL ||
-      "https://api.d-id.com"
-  ).replace(/\/+$/, "");
+const mongoose = require("mongoose");
 
-const getHeaders = () => {
-  const apiKey = String(
-    process.env.DID_API_KEY || ""
-  ).trim();
+const Twin = require("../../models/Twin");
+const AvatarSession = require("../../models/AvatarSession");
 
-  if (!apiKey) {
-    throw new Error(
-      "DID_API_KEY is missing."
-    );
-  }
+const didAvatarService = require("./didAvatar.service");
 
-  return {
-    Authorization: `Basic ${apiKey}`,
-    "Content-Type": "application/json",
-  };
-};
-
-const parseResponse = async (
-  response
+const validateObjectId = (
+  value,
+  fieldName = "ID"
 ) => {
-  const data = await response
-    .json()
-    .catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(
-      data?.description ||
-        data?.message ||
-        data?.kind ||
-        `D-ID request failed with status ${response.status}.`
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      value
+    )
+  ) {
+    const error = new Error(
+      `Invalid ${fieldName}.`
     );
+
+    error.statusCode = 400;
+
+    throw error;
   }
-
-  return data;
 };
 
-exports.createStream = async ({
-  avatarUrl,
-}) => {
-  const response = await fetch(
-    `${DID_API_URL}/talks/streams`,
-    {
-      method: "POST",
+const findOwnedAvatarSession =
+  async ({
+    userId,
+    avatarSessionId,
+  }) => {
+    validateObjectId(
+      avatarSessionId,
+      "avatar session ID"
+    );
 
-      headers: getHeaders(),
+    const session =
+      await AvatarSession.findOne({
+        _id: avatarSessionId,
+        userId,
+      });
 
-      body: JSON.stringify({
-        source_url: avatarUrl,
-      }),
+    if (!session) {
+      const error = new Error(
+        "Avatar session not found."
+      );
+
+      error.statusCode = 404;
+
+      throw error;
     }
-  );
 
-  return parseResponse(response);
-};
+    return session;
+  };
 
-exports.submitSdpAnswer = async ({
-  streamId,
-  sessionId,
-  answer,
-}) => {
-  const response = await fetch(
-    `${DID_API_URL}/talks/streams/${streamId}/sdp`,
-    {
-      method: "POST",
+/* =========================================================
+   CREATE STREAMING AVATAR SESSION
+========================================================= */
 
-      headers: getHeaders(),
+exports.createSession =
+  async ({
+    userId,
+    twinId,
+    realtimeSessionId = null,
+  }) => {
+    validateObjectId(
+      twinId,
+      "Twin ID"
+    );
 
-      body: JSON.stringify({
-        answer,
-        session_id: sessionId,
-      }),
+    if (
+      realtimeSessionId
+    ) {
+      validateObjectId(
+        realtimeSessionId,
+        "realtime session ID"
+      );
     }
-  );
 
-  return parseResponse(response);
-};
+    const twin =
+      await Twin.findOne({
+        _id: twinId,
+        userId,
+      });
+
+    if (!twin) {
+      const error = new Error(
+        "AI Twin not found."
+      );
+
+      error.statusCode = 404;
+
+      throw error;
+    }
+
+    const avatarUrl =
+      String(
+        twin.appearance?.avatarUrl ||
+          twin.image ||
+          ""
+      ).trim();
+
+    if (!avatarUrl) {
+      const error = new Error(
+        "AI Twin avatar image is missing."
+      );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    const avatarSession =
+      await AvatarSession.create({
+        userId,
+        twinId,
+        realtimeSessionId,
+        provider: "did",
+        avatarUrl,
+        status: "connecting",
+      });
+
+    try {
+      const providerResult =
+        await didAvatarService.createStream({
+          avatarUrl,
+        });
+
+      const streamId =
+        providerResult?.id;
+
+      const providerSessionId =
+        providerResult?.session_id;
+
+      const offer =
+        providerResult?.offer;
+
+      const iceServers =
+        providerResult?.ice_servers ||
+        [];
+
+      if (
+        !streamId ||
+        !providerSessionId ||
+        !offer
+      ) {
+        throw new Error(
+          "D-ID did not return valid stream connection details."
+        );
+      }
+
+      avatarSession.providerStreamId =
+        streamId;
+
+      avatarSession.providerSessionId =
+        providerSessionId;
+
+      avatarSession.offer =
+        offer;
+
+      avatarSession.iceServers =
+        iceServers;
+
+      avatarSession.status =
+        "created";
+
+      avatarSession.lastError =
+        "";
+
+      await avatarSession.save();
+
+      return {
+        avatarSessionId:
+          avatarSession._id,
+
+        streamId,
+
+        sessionId:
+          providerSessionId,
+
+        offer,
+
+        iceServers,
+
+        avatarUrl,
+      };
+    } catch (error) {
+      avatarSession.status =
+        "failed";
+
+      avatarSession.lastError =
+        error.message ||
+        "D-ID stream creation failed.";
+
+      await avatarSession.save();
+
+      throw error;
+    }
+  };
+
+/* =========================================================
+   SUBMIT SDP ANSWER
+========================================================= */
+
+exports.submitAnswer =
+  async ({
+    userId,
+    avatarSessionId,
+    answer,
+  }) => {
+    const session =
+      await findOwnedAvatarSession({
+        userId,
+        avatarSessionId,
+      });
+
+    if (
+      !answer ||
+      !answer.type ||
+      !answer.sdp
+    ) {
+      const error = new Error(
+        "A valid WebRTC SDP answer is required."
+      );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    await didAvatarService.submitSdpAnswer({
+      streamId:
+        session.providerStreamId,
+
+      sessionId:
+        session.providerSessionId,
+
+      answer,
+    });
+
+    session.status =
+      "active";
+
+    session.startedAt =
+      session.startedAt ||
+      new Date();
+
+    session.lastError =
+      "";
+
+    await session.save();
+
+    return session;
+  };
+
+/* =========================================================
+   ADD ICE CANDIDATE
+========================================================= */
 
 exports.addIceCandidate =
   async ({
-    streamId,
-    sessionId,
+    userId,
+    avatarSessionId,
     candidate,
     sdpMid,
     sdpMLineIndex,
   }) => {
-    const response = await fetch(
-      `${DID_API_URL}/talks/streams/${streamId}/ice`,
-      {
-        method: "POST",
+    const session =
+      await findOwnedAvatarSession({
+        userId,
+        avatarSessionId,
+      });
 
-        headers: getHeaders(),
+    await didAvatarService.addIceCandidate({
+      streamId:
+        session.providerStreamId,
 
-        body: JSON.stringify({
-          candidate,
-          sdpMid,
-          sdpMLineIndex,
-          session_id: sessionId,
-        }),
-      }
-    );
+      sessionId:
+        session.providerSessionId,
 
-    return parseResponse(response);
-  };
+      candidate,
+      sdpMid,
+      sdpMLineIndex,
+    });
 
-exports.speakText = async ({
-  streamId,
-  sessionId,
-  text,
-}) => {
-  const normalized =
-    String(text || "").trim();
-
-  if (!normalized) {
-    throw new Error(
-      "Avatar speech text is required."
-    );
-  }
-
-  const response = await fetch(
-    `${DID_API_URL}/talks/streams/${streamId}`,
-    {
-      method: "POST",
-
-      headers: getHeaders(),
-
-      body: JSON.stringify({
-        session_id: sessionId,
-
-        script: {
-          type: "text",
-
-          input: normalized,
-
-          provider: {
-            type: "microsoft",
-
-            voice_id:
-              "en-US-JennyNeural",
-          },
-        },
-      }),
-    }
-  );
-
-  return parseResponse(response);
-};
-
-exports.deleteStream = async ({
-  streamId,
-  sessionId,
-}) => {
-  const response = await fetch(
-    `${DID_API_URL}/talks/streams/${streamId}`,
-    {
-      method: "DELETE",
-
-      headers: getHeaders(),
-
-      body: JSON.stringify({
-        session_id: sessionId,
-      }),
-    }
-  );
-
-  if (
-    response.status === 204
-  ) {
     return {
       success: true,
     };
-  }
+  };
 
-  return parseResponse(response);
-};
+/* =========================================================
+   MAKE AVATAR SPEAK
+========================================================= */
+
+exports.speak =
+  async ({
+    userId,
+    avatarSessionId,
+    text,
+  }) => {
+    const session =
+      await findOwnedAvatarSession({
+        userId,
+        avatarSessionId,
+      });
+
+    if (
+      session.status !==
+      "active"
+    ) {
+      const error = new Error(
+        "Avatar session is not active."
+      );
+
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    return didAvatarService.speakText({
+      streamId:
+        session.providerStreamId,
+
+      sessionId:
+        session.providerSessionId,
+
+      text,
+    });
+  };
+
+/* =========================================================
+   END SESSION
+========================================================= */
+
+exports.endSession =
+  async ({
+    userId,
+    avatarSessionId,
+  }) => {
+    const session =
+      await findOwnedAvatarSession({
+        userId,
+        avatarSessionId,
+      });
+
+    try {
+      await didAvatarService.deleteStream({
+        streamId:
+          session.providerStreamId,
+
+        sessionId:
+          session.providerSessionId,
+      });
+    } catch (error) {
+      console.error(
+        "D-ID STREAM CLOSE ERROR:",
+        error.message
+      );
+    }
+
+    session.status =
+      "ended";
+
+    session.endedAt =
+      new Date();
+
+    await session.save();
+
+    return session;
+  };
