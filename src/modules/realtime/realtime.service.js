@@ -8,7 +8,7 @@ const {
 
 const {
   createGeminiLiveConnection,
-} = require("../../services/geminiLive.service");
+} = require("./geminiLive.service");
 
 exports.initializeRealtimeSession = async ({
   sessionId,
