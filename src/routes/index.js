@@ -36,7 +36,7 @@ router.use(
 router.use("/avatar", avatarRoutes);
 router.use("/credits", creditsRoutes);
 router.use("/admin", adminRoutes);
-router.use("/liveavatar", liveAvatarRoutes);
+router.use("/live-avatar", liveAvatarRoutes);
 
 // Important
 router.use("/schedules", scheduleRoutes);
