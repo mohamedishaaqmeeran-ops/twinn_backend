@@ -12,7 +12,7 @@ const avatarRoutes = require("../modules/avatar/avatar.routes");
 const creditsRoutes = require("../modules/credits/credits.routes");
 const adminRoutes = require("../modules/admin/admin.routes");
 const scheduleRoutes = require("../modules/schedule/schedule.routes");
-const liveAvatarRoutes = require("../modules/liveAvatar/liveAvatar.routes");
+
 const realtimeRoutes =
   require(
     "../modules/realtime/realtime.routes"
@@ -36,7 +36,7 @@ router.use(
 router.use("/avatar", avatarRoutes);
 router.use("/credits", creditsRoutes);
 router.use("/admin", adminRoutes);
-router.use("/live-avatar", liveAvatarRoutes);
+
 
 // Important
 router.use("/schedules", scheduleRoutes);
