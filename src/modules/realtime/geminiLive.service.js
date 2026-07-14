@@ -9,7 +9,7 @@ const {
 const {
   buildRealtimePrompt,
 } = require(
-  "./realtime-prompt"
+  "./realtime-prompt.service"
 );
 
 const realtimeTools = require(
