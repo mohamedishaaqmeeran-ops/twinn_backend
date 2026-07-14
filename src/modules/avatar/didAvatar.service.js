@@ -101,12 +101,19 @@ exports.addIceCandidate =
 
         headers: getHeaders(),
 
-        body: JSON.stringify({
-          candidate,
-          sdpMid,
-          sdpMLineIndex,
-          session_id: sessionId,
-        }),
+       body: JSON.stringify({
+  candidate:
+    candidate ?? null,
+
+  sdpMid:
+    sdpMid ?? null,
+
+  sdpMLineIndex:
+    sdpMLineIndex ?? null,
+
+  session_id:
+    sessionId,
+}),
       }
     );
 

@@ -694,21 +694,10 @@ exports.addIceCandidate =
   async (req, res) => {
     try {
       const {
-        candidate,
-        sdpMid,
-        sdpMLineIndex,
-      } = req.body;
-
-      if (!candidate) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-
-            message:
-              "ICE candidate is required.",
-          });
-      }
+        candidate = null,
+        sdpMid = null,
+        sdpMLineIndex = null,
+      } = req.body || {};
 
       const result =
         await avatarService.addIceCandidate({
@@ -720,20 +709,17 @@ exports.addIceCandidate =
 
           candidate,
 
-          sdpMid:
-            sdpMid ?? null,
+          sdpMid,
 
-          sdpMLineIndex:
-            sdpMLineIndex ??
-            null,
+          sdpMLineIndex,
         });
 
       return res.json({
         success: true,
-
         message:
-          "ICE candidate added.",
-
+          candidate === null
+            ? "ICE gathering completed."
+            : "ICE candidate added.",
         result,
       });
     } catch (error) {
