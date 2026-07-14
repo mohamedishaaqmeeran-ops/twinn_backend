@@ -32,7 +32,7 @@ router.use(
   twinRoutes
 );
 
-router.use("/avatars", avatarRoutes);
+router.use("/avatar", avatarRoutes);
 router.use("/credits", creditsRoutes);
 router.use("/admin", adminRoutes);
 
