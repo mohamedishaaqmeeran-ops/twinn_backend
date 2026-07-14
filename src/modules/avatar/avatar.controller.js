@@ -716,10 +716,12 @@ exports.addIceCandidate =
 
       return res.json({
         success: true,
+
         message:
           candidate === null
             ? "ICE gathering completed."
             : "ICE candidate added.",
+
         result,
       });
     } catch (error) {
