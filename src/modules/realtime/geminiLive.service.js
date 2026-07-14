@@ -1,6 +1,6 @@
 const {
   getGenAIClient,
-} = require("../config/genai");
+} = require("../../config/genai");
 
 const liveModel =
   process.env.GEMINI_LIVE_MODEL ||
