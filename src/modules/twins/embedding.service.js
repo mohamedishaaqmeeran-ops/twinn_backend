@@ -1,14 +1,83 @@
-const { getGenAIClient } =
-  require("../../config/genai");
 
-const KnowledgeChunk =
-  require("../../models/KnowledgeChunk");
+const mongoose = require("mongoose");
+
+const {
+  getGenAIClient,
+} = require("../../config/genai");
+
+const KnowledgeChunk = require("../models/KnowledgeChunk");
+
+/* =========================================================
+   CONFIGURATION
+========================================================= */
 
 const embeddingModel =
   process.env.GEMINI_EMBEDDING_MODEL ||
   "gemini-embedding-001";
 
-const getEmbeddingValues = (response) => {
+const DEFAULT_SEARCH_LIMIT = 5;
+
+const DEFAULT_MINIMUM_SIMILARITY = Number(
+  process.env.KNOWLEDGE_MIN_SIMILARITY || 0.2
+);
+
+/* =========================================================
+   OBJECT ID HELPERS
+========================================================= */
+
+const normalizeObjectId = (
+  value,
+  fieldName
+) => {
+  if (!value) {
+    throw new Error(
+      `${fieldName} is required.`
+    );
+  }
+
+  if (
+    value instanceof
+    mongoose.Types.ObjectId
+  ) {
+    return value;
+  }
+
+  if (
+    !mongoose.Types.ObjectId.isValid(
+      value
+    )
+  ) {
+    throw new Error(
+      `Invalid ${fieldName}.`
+    );
+  }
+
+  return new mongoose.Types.ObjectId(
+    value
+  );
+};
+
+const normalizeOptionalObjectId = (
+  value,
+  fieldName
+) => {
+  if (!value) {
+    return null;
+  }
+
+  return normalizeObjectId(
+    value,
+    fieldName
+  );
+};
+
+/* =========================================================
+   EMBEDDING RESPONSE PARSER
+========================================================= */
+
+const getEmbeddingValues = (
+  response
+) => {
   const embedding =
     response?.embeddings?.[0] ||
     response?.embedding;
@@ -17,58 +86,129 @@ const getEmbeddingValues = (response) => {
     embedding?.values ||
     embedding;
 
-  if (!Array.isArray(values)) {
+  if (
+    !Array.isArray(values) ||
+    values.length === 0
+  ) {
     throw new Error(
       "Gemini did not return a valid embedding."
+    );
+  }
+
+  const hasInvalidValue =
+    values.some(
+      (value) =>
+        typeof value !==
+          "number" ||
+        !Number.isFinite(value)
+    );
+
+  if (hasInvalidValue) {
+    throw new Error(
+      "Gemini returned invalid embedding values."
     );
   }
 
   return values;
 };
 
-exports.generateDocumentEmbedding = async ({
-  title,
-  content,
-}) => {
-  const ai = await getGenAIClient();
+/* =========================================================
+   DOCUMENT EMBEDDING
+========================================================= */
 
-  const input =
-    `title: ${title || "none"} | text: ${content}`;
+exports.generateDocumentEmbedding =
+  async ({
+    title,
+    content,
+  }) => {
+    const normalizedContent =
+      String(
+        content || ""
+      ).trim();
 
-  const response =
-    await ai.models.embedContent({
-      model: embeddingModel,
-      contents: input,
-    });
+    if (!normalizedContent) {
+      throw new Error(
+        "Document content is required to generate an embedding."
+      );
+    }
 
-  return getEmbeddingValues(response);
-};
+    const normalizedTitle =
+      String(
+        title || "none"
+      ).trim();
 
-exports.generateQueryEmbedding = async (
-  query
-) => {
-  const ai = await getGenAIClient();
+    const ai =
+      await getGenAIClient();
 
-  const input =
-    `task: question answering | query: ${query}`;
+    const input = [
+      `title: ${normalizedTitle}`,
+      `text: ${normalizedContent}`,
+    ].join(" | ");
 
-  const response =
-    await ai.models.embedContent({
-      model: embeddingModel,
-      contents: input,
-    });
+    const response =
+      await ai.models.embedContent({
+        model: embeddingModel,
+        contents: input,
+      });
 
-  return getEmbeddingValues(response);
-};
+    return getEmbeddingValues(
+      response
+    );
+  };
+
+/* =========================================================
+   QUERY EMBEDDING
+========================================================= */
+
+exports.generateQueryEmbedding =
+  async (query) => {
+    const normalizedQuery =
+      String(query || "").trim();
+
+    if (!normalizedQuery) {
+      throw new Error(
+        "Query is required to generate an embedding."
+      );
+    }
+
+    const ai =
+      await getGenAIClient();
+
+    const input = [
+      "task: question answering",
+      `query: ${normalizedQuery}`,
+    ].join(" | ");
+
+    const response =
+      await ai.models.embedContent({
+        model: embeddingModel,
+        contents: input,
+      });
+
+    return getEmbeddingValues(
+      response
+    );
+  };
+
+/* =========================================================
+   COSINE SIMILARITY
+========================================================= */
 
 const cosineSimilarity = (
   firstVector,
   secondVector
 ) => {
   if (
-    !Array.isArray(firstVector) ||
-    !Array.isArray(secondVector) ||
-    firstVector.length !== secondVector.length
+    !Array.isArray(
+      firstVector
+    ) ||
+    !Array.isArray(
+      secondVector
+    ) ||
+    firstVector.length === 0 ||
+    secondVector.length === 0 ||
+    firstVector.length !==
+      secondVector.length
   ) {
     return -1;
   }
@@ -79,67 +219,365 @@ const cosineSimilarity = (
 
   for (
     let index = 0;
-    index < firstVector.length;
+    index <
+    firstVector.length;
     index += 1
   ) {
+    const firstValue =
+      Number(
+        firstVector[index]
+      );
+
+    const secondValue =
+      Number(
+        secondVector[index]
+      );
+
+    if (
+      !Number.isFinite(
+        firstValue
+      ) ||
+      !Number.isFinite(
+        secondValue
+      )
+    ) {
+      return -1;
+    }
+
     dotProduct +=
-      firstVector[index] *
-      secondVector[index];
+      firstValue *
+      secondValue;
 
     firstMagnitude +=
-      firstVector[index] ** 2;
+      firstValue ** 2;
 
     secondMagnitude +=
-      secondVector[index] ** 2;
+      secondValue ** 2;
   }
 
-  if (!firstMagnitude || !secondMagnitude) {
+  if (
+    firstMagnitude === 0 ||
+    secondMagnitude === 0
+  ) {
     return -1;
   }
 
   return (
     dotProduct /
-    (Math.sqrt(firstMagnitude) *
-      Math.sqrt(secondMagnitude))
+    (
+      Math.sqrt(
+        firstMagnitude
+      ) *
+      Math.sqrt(
+        secondMagnitude
+      )
+    )
   );
 };
 
-exports.searchKnowledge = async ({
+/* =========================================================
+   KNOWLEDGE DATABASE FILTER
+========================================================= */
+
+/*
+ * Rules:
+ *
+ * 1. Knowledge must belong to the authenticated user.
+ * 2. Knowledge must belong to the selected Twin.
+ * 3. Knowledge must have ready status.
+ * 4. When a product is selected:
+ *    - use knowledge for that product;
+ *    - optionally include general Twin knowledge
+ *      where productId is null or missing.
+ * 5. Never search another user's knowledge.
+ */
+
+const buildKnowledgeFilter = ({
   userId,
   twinId,
-  query,
-  limit = 5,
+  productId = null,
+  includeGeneralKnowledge = true,
 }) => {
-  const queryEmbedding =
-    await exports.generateQueryEmbedding(query);
-
-  const chunks =
-    await KnowledgeChunk.find({
+  const normalizedUserId =
+    normalizeObjectId(
       userId,
+      "user ID"
+    );
+
+  const normalizedTwinId =
+    normalizeObjectId(
       twinId,
-      status: "ready",
-    })
-      .select("+embedding")
-      .lean();
+      "Twin ID"
+    );
 
-  return chunks
-    .map((chunk) => ({
-      ...chunk,
+  const normalizedProductId =
+    normalizeOptionalObjectId(
+      productId,
+      "product ID"
+    );
 
-      similarity: cosineSimilarity(
-        queryEmbedding,
-        chunk.embedding
-      ),
-    }))
-    .filter(
-      (chunk) => chunk.similarity > 0
-    )
-    .sort(
-      (first, second) =>
-        second.similarity -
-        first.similarity
-    )
-    .slice(0, limit);
+  const filter = {
+    userId:
+      normalizedUserId,
+
+    twinId:
+      normalizedTwinId,
+
+    status: "ready",
+  };
+
+  if (
+    normalizedProductId &&
+    includeGeneralKnowledge
+  ) {
+    filter.$or = [
+      {
+        productId:
+          normalizedProductId,
+      },
+      {
+        productId: null,
+      },
+      {
+        productId: {
+          $exists: false,
+        },
+      },
+    ];
+  } else if (
+    normalizedProductId
+  ) {
+    /*
+     * Strict selected-product mode.
+     *
+     * Only knowledge directly connected
+     * to the selected product is loaded.
+     */
+    filter.productId =
+      normalizedProductId;
+  }
+
+  return filter;
 };
 
-exports.embeddingModel = embeddingModel;
+/* =========================================================
+   SEARCH RELEVANT KNOWLEDGE
+========================================================= */
+
+exports.searchKnowledge =
+  async ({
+    userId,
+    twinId,
+    productId = null,
+    query,
+    limit =
+      DEFAULT_SEARCH_LIMIT,
+    minimumSimilarity =
+      DEFAULT_MINIMUM_SIMILARITY,
+    includeGeneralKnowledge = true,
+  }) => {
+    const normalizedQuery =
+      String(query || "").trim();
+
+    if (!normalizedQuery) {
+      throw new Error(
+        "Knowledge search query is required."
+      );
+    }
+
+    const normalizedLimit =
+      Math.min(
+        Math.max(
+          Number(limit) ||
+            DEFAULT_SEARCH_LIMIT,
+          1
+        ),
+        20
+      );
+
+    const normalizedMinimumSimilarity =
+      Number.isFinite(
+        Number(
+          minimumSimilarity
+        )
+      )
+        ? Number(
+            minimumSimilarity
+          )
+        : DEFAULT_MINIMUM_SIMILARITY;
+
+    /*
+     * Generate an embedding for
+     * the customer's question.
+     */
+    const queryEmbedding =
+      await exports
+        .generateQueryEmbedding(
+          normalizedQuery
+        );
+
+    /*
+     * Build a secure query using:
+     *
+     * userId + twinId + productId.
+     */
+    const filter =
+      buildKnowledgeFilter({
+        userId,
+        twinId,
+        productId,
+        includeGeneralKnowledge,
+      });
+
+    /*
+     * This only loads knowledge owned
+     * by the authenticated user.
+     */
+    const chunks =
+      await KnowledgeChunk.find(
+        filter
+      )
+        .select(
+          [
+            "+embedding",
+            "content",
+            "sourceTitle",
+            "sourceType",
+            "sourceUrl",
+            "fileName",
+            "productId",
+            "chunkIndex",
+            "createdAt",
+          ].join(" ")
+        )
+        .lean();
+
+    if (!chunks.length) {
+      return [];
+    }
+
+    return chunks
+      .map((chunk) => {
+        const similarity =
+          cosineSimilarity(
+            queryEmbedding,
+            chunk.embedding
+          );
+
+        /*
+         * Do not return embeddings
+         * to the controller or Gemini.
+         */
+        const {
+          embedding,
+          ...safeChunk
+        } = chunk;
+
+        return {
+          ...safeChunk,
+          similarity,
+        };
+      })
+      .filter(
+        (chunk) =>
+          chunk.similarity >=
+          normalizedMinimumSimilarity
+      )
+      .sort(
+        (
+          firstChunk,
+          secondChunk
+        ) =>
+          secondChunk.similarity -
+          firstChunk.similarity
+      )
+      .slice(
+        0,
+        normalizedLimit
+      );
+  };
+
+/* =========================================================
+   STRICT PRODUCT-ONLY SEARCH
+========================================================= */
+
+/*
+ * Use this function during a product-specific
+ * live session.
+ *
+ * It does not include general Twin knowledge.
+ * It returns knowledge only for the selected product.
+ */
+
+exports.searchProductKnowledge =
+  async ({
+    userId,
+    twinId,
+    productId,
+    query,
+    limit =
+      DEFAULT_SEARCH_LIMIT,
+    minimumSimilarity =
+      DEFAULT_MINIMUM_SIMILARITY,
+  }) => {
+    if (!productId) {
+      throw new Error(
+        "Product ID is required for product knowledge search."
+      );
+    }
+
+    return exports.searchKnowledge({
+      userId,
+      twinId,
+      productId,
+      query,
+      limit,
+      minimumSimilarity,
+      includeGeneralKnowledge:
+        false,
+    });
+  };
+
+/* =========================================================
+   GENERAL TWIN KNOWLEDGE SEARCH
+========================================================= */
+
+/*
+ * Use this when no specific product is selected.
+ *
+ * It loads knowledge belonging only to:
+ * authenticated user + selected Twin.
+ */
+
+exports.searchTwinKnowledge =
+  async ({
+    userId,
+    twinId,
+    query,
+    limit =
+      DEFAULT_SEARCH_LIMIT,
+    minimumSimilarity =
+      DEFAULT_MINIMUM_SIMILARITY,
+  }) => {
+    return exports.searchKnowledge({
+      userId,
+      twinId,
+      productId: null,
+      query,
+      limit,
+      minimumSimilarity,
+    });
+  };
+
+/* =========================================================
+   EXPORTS
+========================================================= */
+
+exports.cosineSimilarity =
+  cosineSimilarity;
+
+exports.buildKnowledgeFilter =
+  buildKnowledgeFilter;
+
+exports.embeddingModel =
+  embeddingModel;

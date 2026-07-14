@@ -6,6 +6,7 @@ const productSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
     },
 
     name: {
@@ -16,17 +17,13 @@ const productSchema = new mongoose.Schema(
 
     description: {
       type: String,
-      default: "",
+      required: true,
+      trim: true,
     },
 
     category: {
       type: String,
       default: "General",
-    },
-
-    brand: {
-      type: String,
-      default: "",
     },
 
     price: {
@@ -35,9 +32,9 @@ const productSchema = new mongoose.Schema(
       min: 0,
     },
 
-    salePrice: {
-      type: Number,
-      default: 0,
+    currency: {
+      type: String,
+      default: "INR",
     },
 
     stock: {
@@ -46,69 +43,55 @@ const productSchema = new mongoose.Schema(
       min: 0,
     },
 
-    images: [
+    features: [
       {
         type: String,
+        trim: true,
       },
     ],
 
-    tags: [
+    benefits: [
       {
         type: String,
+        trim: true,
       },
     ],
+
+    specifications: {
+      type: Map,
+      of: String,
+      default: {},
+    },
+
+    shippingInformation: {
+      type: String,
+      default: "",
+    },
+
+    returnPolicy: {
+      type: String,
+      default: "",
+    },
+
+    image: {
+      type: String,
+      default: "",
+    },
 
     status: {
       type: String,
-      enum: ["draft", "active", "inactive"],
+      enum: ["active", "inactive"],
       default: "active",
-    },
-
-    isFeatured: {
-      type: Boolean,
-      default: false,
-    },
-
-    // AI Twin
-    script: {
-      type: String,
-      default: "",
-    },
-
-    offer: {
-      type: String,
-      default: "",
-    },
-
-    objectionHandling: {
-      type: String,
-      default: "",
-    },
-
-    // Analytics
-    sales: {
-      type: Number,
-      default: 0,
-    },
-
-    views: {
-      type: Number,
-      default: 0,
-    },
-
-    rating: {
-      type: Number,
-      default: 0,
-    },
-
-    totalReviews: {
-      type: Number,
-      default: 0,
     },
   },
   {
     timestamps: true,
   }
 );
+
+productSchema.index({
+  userId: 1,
+  status: 1,
+});
 
 module.exports = mongoose.model("Product", productSchema);

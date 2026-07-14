@@ -16,81 +16,34 @@ const knowledgeChunkSchema = new mongoose.Schema(
       index: true,
     },
 
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+      index: true,
+    },
+
     sourceType: {
       type: String,
-      enum: [
-        "text",
-        "file",
-        "website",
-        "faq",
-        "product",
-      ],
-      default: "text",
-    },
-
-    sourceTitle: {
-      type: String,
-      default: "",
-      trim: true,
-    },
-
-    sourceUrl: {
-      type: String,
-      default: "",
-    },
-
-    fileName: {
-      type: String,
-      default: "",
-    },
-
-    fileUrl: {
-      type: String,
-      default: "",
-    },
-
-    filePublicId: {
-      type: String,
-      default: "",
-    },
-
-    mimeType: {
-      type: String,
-      default: "",
-    },
-
-    chunkIndex: {
-      type: Number,
+      enum: ["file", "website", "text", "product"],
       required: true,
-      min: 0,
     },
 
+    sourceTitle: String,
     content: {
       type: String,
       required: true,
-      trim: true,
     },
 
     embedding: {
       type: [Number],
       default: [],
-      select: false,
-    },
-
-    embeddingModel: {
-      type: String,
-      default: "",
     },
 
     status: {
       type: String,
       enum: ["processing", "ready", "failed"],
       default: "ready",
-    },
-
-    error: {
-      type: String,
-      default: "",
     },
   },
   {
@@ -99,9 +52,10 @@ const knowledgeChunkSchema = new mongoose.Schema(
 );
 
 knowledgeChunkSchema.index({
+  userId: 1,
   twinId: 1,
-  sourceTitle: 1,
-  chunkIndex: 1,
+  productId: 1,
+  status: 1,
 });
 
 module.exports = mongoose.model(

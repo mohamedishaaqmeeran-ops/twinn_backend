@@ -19,7 +19,7 @@ const {
 const {
   createRealtimeSocketServer,
 } = require(
-  "./src/modules/realtime/realtime.socket"
+  "./src/modules/realtime/realtime.websocket"
 );
 
 const PORT =
