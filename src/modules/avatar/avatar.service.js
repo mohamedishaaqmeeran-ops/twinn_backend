@@ -297,6 +297,7 @@ exports.speak =
     userId,
     avatarSessionId,
     text,
+    language,
   }) => {
     const session =
       await findOwnedAvatarSession({
@@ -317,6 +318,23 @@ exports.speak =
       throw error;
     }
 
+    const twin =
+      await Twin.findOne({
+        _id:
+          session.twinId,
+        userId,
+      }).select(
+        "primaryLanguage voice voiceName"
+      );
+
+    const selectedLanguage =
+      String(
+        language ||
+          twin?.primaryLanguage ||
+          twin?.voice?.language ||
+          "English"
+      ).trim();
+
     return didAvatarService.speakText({
       streamId:
         session.providerStreamId,
@@ -325,6 +343,9 @@ exports.speak =
         session.providerSessionId,
 
       text,
+
+      language:
+        selectedLanguage,
     });
   };
 

@@ -750,7 +750,6 @@ exports.speak =
           .status(400)
           .json({
             success: false,
-
             message:
               "Avatar speech text is required.",
           });
@@ -765,14 +764,16 @@ exports.speak =
             req.params.id,
 
           text,
+
+          language:
+            req.body?.language ||
+            "English",
         });
 
       return res.json({
         success: true,
-
         message:
           "Avatar speech started.",
-
         result,
       });
     } catch (error) {
