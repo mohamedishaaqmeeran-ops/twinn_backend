@@ -5,7 +5,7 @@ const {
   getGenAIClient,
 } = require("../../config/genai");
 
-const KnowledgeChunk = require("../models/KnowledgeChunk");
+const KnowledgeChunk = require("../../models/KnowledgeChunk");
 
 /* =========================================================
    CONFIGURATION
