@@ -1,584 +1,431 @@
-const crypto = require("crypto");
-
 const {
-  GoogleGenAI,
-  Modality,
-  Type,
-} = require("@google/genai");
+  getGenAIClient,
+} = require("../config/genai");
 
-const {
-  buildRealtimePrompt,
-} = require(
-  "./realtime-prompt.service"
-);
-
-const realtimeTools = require(
-  "./realtime.tools"
-);
-
-const GEMINI_LIVE_MODEL =
+const liveModel =
   process.env.GEMINI_LIVE_MODEL ||
-  "gemini-3.1-flash-live-preview";
+  "gemini-2.5-flash-native-audio-preview-12-2025";
 
-const VOICE_MAP = {
-  "Warm Female": "Kore",
-  "Soft Female": "Aoede",
-  "Luxury Female": "Leda",
-  "Young Male": "Puck",
-  "Professional Male": "Charon",
-  "Energetic Creator": "Fenrir",
-};
+/* =========================================================
+   SAFE WEBSOCKET SEND
+========================================================= */
 
-const createClient = () => {
-  const apiKey = String(
-    process.env.GEMINI_API_KEY || ""
-  ).trim();
-
-  if (!apiKey) {
-    throw new Error(
-      "GEMINI_API_KEY is missing."
+const safeSend = (
+  websocket,
+  payload
+) => {
+  if (
+    websocket &&
+    websocket.readyState === 1
+  ) {
+    websocket.send(
+      JSON.stringify(payload)
     );
   }
-
-  return new GoogleGenAI({
-    apiKey,
-  });
 };
 
-const getVoiceName = (twin) => {
-  const voice =
-    twin.voice || {};
+/* =========================================================
+   CREATE GEMINI LIVE CONNECTION
+========================================================= */
 
-  const configured =
-    voice.voiceId ||
-    voice.voiceName ||
-    voice.voiceType ||
-    twin.voiceName ||
-    "Kore";
-
-  return (
-    VOICE_MAP[configured] ||
-    configured
-  );
-};
-
-const extractAudioParts = (
-  message
-) => {
-  const parts =
-    message?.serverContent
-      ?.modelTurn?.parts || [];
-
-  return parts
-    .map(
-      (part) =>
-        part?.inlineData?.data
-    )
-    .filter(Boolean);
-};
-
-exports.createGeminiLiveSession =
+const createGeminiLiveConnection =
   async ({
-    userId,
-    twin,
-    product,
-    language,
-
-    onReady,
-    onAudio,
-    onUserTranscript,
-    onAssistantTranscript,
-    onInterrupted,
-    onTurnComplete,
-    onError,
-    onClose,
+    systemPrompt,
+    language = "English",
+    websocket,
   }) => {
-    const ai = createClient();
+    if (!systemPrompt) {
+      throw new Error(
+        "Gemini system prompt is required."
+      );
+    }
 
-    const internalSessionId =
-      crypto.randomUUID();
+    const ai =
+      await getGenAIClient();
 
-    let liveSession = null;
-    let closed = false;
-    let toolCallInProgress =
-      false;
+    if (
+      !ai ||
+      !ai.live ||
+      typeof ai.live.connect !==
+        "function"
+    ) {
+      throw new Error(
+        "Gemini Live API is not available in the configured SDK."
+      );
+    }
 
-    const handleToolCalls =
-      async (message) => {
-        const functionCalls =
-          message?.toolCall
-            ?.functionCalls || [];
-
-        if (!functionCalls.length) {
-          return;
-        }
-
-        toolCallInProgress = true;
-
-        try {
-          const functionResponses =
-            [];
-
-          for (
-            const call of
-            functionCalls
-          ) {
-            let result;
-
-            try {
-              if (
-                call.name ===
-                "search_product_knowledge"
-              ) {
-                result =
-                  await realtimeTools.searchKnowledge({
-                    userId,
-
-                    twinId:
-                      twin._id,
-
-                    query:
-                      call.args
-                        ?.query ||
-                      "",
-                  });
-              } else if (
-                call.name ===
-                "get_product_details"
-              ) {
-                const requestedProductId =
-                  call.args
-                    ?.productId ||
-                  product?._id;
-
-                if (
-                  !requestedProductId
-                ) {
-                  result = {
-                    found: false,
-                    message:
-                      "No product is currently selected.",
-                  };
-                } else {
-                  result =
-                    await realtimeTools.getProductDetails({
-                      userId,
-
-                      productId:
-                        requestedProductId,
-                    });
-                }
-              } else {
-                result = {
-                  error:
-                    `Unknown tool: ${call.name}`,
-                };
-              }
-            } catch (toolError) {
-              result = {
-                error:
-                  toolError.message ||
-                  "Tool execution failed.",
-              };
-            }
-
-            functionResponses.push({
-              id: call.id,
-              name: call.name,
-
-              response: {
-                result,
-              },
-            });
-          }
-
-          liveSession.sendToolResponse({
-            functionResponses,
-          });
-        } finally {
-          toolCallInProgress =
-            false;
-        }
-      };
-
-    liveSession =
+    const session =
       await ai.live.connect({
         model:
-          GEMINI_LIVE_MODEL,
-
-        callbacks: {
-  onopen() {
-    console.log(
-      "GEMINI LIVE OPEN:",
-      {
-        model:
-          GEMINI_LIVE_MODEL,
-
-        sessionId:
-          internalSessionId,
-      }
-    );
-
-    onReady?.({
-      sessionId:
-        internalSessionId,
-    });
-  },
-
-  async onmessage(message) {
-    try {
-      const userText =
-        message
-          ?.serverContent
-          ?.inputTranscription
-          ?.text;
-
-      if (userText) {
-        onUserTranscript?.(
-          userText
-        );
-      }
-
-      const assistantText =
-        message
-          ?.serverContent
-          ?.outputTranscription
-          ?.text;
-
-      if (assistantText) {
-        onAssistantTranscript?.(
-          assistantText
-        );
-      }
-
-      if (
-        message
-          ?.serverContent
-          ?.interrupted
-      ) {
-        onInterrupted?.();
-      }
-
-      const encodedAudioParts =
-        extractAudioParts(
-          message
-        );
-
-      for (
-        const encodedAudio of
-        encodedAudioParts
-      ) {
-        await onAudio?.(
-          Buffer.from(
-            encodedAudio,
-            "base64"
-          )
-        );
-      }
-
-      if (
-        message.toolCall
-          ?.functionCalls
-          ?.length
-      ) {
-        await handleToolCalls(
-          message
-        );
-      }
-
-      if (
-        message
-          ?.serverContent
-          ?.turnComplete
-      ) {
-        onTurnComplete?.();
-      }
-    } catch (error) {
-      console.error(
-        "GEMINI MESSAGE PROCESSING ERROR:",
-        error
-      );
-
-      onError?.(error);
-    }
-  },
-
-  onerror(event) {
-    console.error(
-      "GEMINI LIVE SDK ERROR:",
-      {
-        message:
-          event?.message,
-
-        errorMessage:
-          event?.error
-            ?.message,
-
-        event,
-      }
-    );
-
-    const message =
-      event?.message ||
-      event?.error?.message ||
-      "Gemini Live connection error.";
-
-    onError?.(
-      new Error(message)
-    );
-  },
-
-  onclose(event) {
-    closed = true;
-
-    console.error(
-      "GEMINI LIVE SDK CLOSED:",
-      {
-        code:
-          event?.code,
-
-        reason:
-          event?.reason,
-
-        wasClean:
-          event?.wasClean,
-      }
-    );
-
-    onClose?.({
-      code:
-        event?.code,
-
-      reason:
-        event?.reason ||
-        "Gemini Live closed.",
-    });
-  },
-},
+          liveModel,
 
         config: {
           responseModalities: [
-            Modality.AUDIO,
+            "TEXT",
           ],
 
           systemInstruction: {
             parts: [
               {
                 text:
-                  buildRealtimePrompt({
-                    twin,
-                    product,
-                    language,
-                  }),
+                  systemPrompt,
               },
             ],
           },
+        },
 
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName:
-                  getVoiceName(
-                    twin
-                  ),
-              },
-            },
+        callbacks: {
+          onopen: () => {
+            console.log(
+              "GEMINI LIVE CONNECTED"
+            );
+
+            safeSend(
+              websocket,
+              {
+                type:
+                  "gemini.connected",
+
+                event:
+                  "gemini.connected",
+
+                language,
+              }
+            );
           },
 
-          inputAudioTranscription:
-            {},
+          onmessage: (
+            message
+          ) => {
+            try {
+              const serverContent =
+                message?.serverContent ||
+                message?.data
+                  ?.serverContent ||
+                null;
 
-          outputAudioTranscription:
-            {},
+              const modelTurn =
+                serverContent
+                  ?.modelTurn;
 
-          realtimeInputConfig: {
-            automaticActivityDetection: {
-              disabled: false,
+              const parts =
+                modelTurn
+                  ?.parts ||
+                [];
 
-              prefixPaddingMs:
-                100,
+              for (
+                const part of parts
+              ) {
+                if (
+                  part?.text
+                ) {
+                  safeSend(
+                    websocket,
+                    {
+                      type:
+                        "transcript.assistant",
 
-              silenceDurationMs:
-                700,
-            },
+                      event:
+                        "transcript:assistant",
+
+                      text:
+                        part.text,
+                    }
+                  );
+                }
+
+                if (
+                  part?.inlineData
+                    ?.data
+                ) {
+                  safeSend(
+                    websocket,
+                    {
+                      type:
+                        "audio.output",
+
+                      event:
+                        "audio:output",
+
+                      audio:
+                        part
+                          .inlineData
+                          .data,
+
+                      mimeType:
+                        part
+                          .inlineData
+                          .mimeType,
+
+                      sampleRate:
+                        24000,
+                    }
+                  );
+                }
+              }
+
+              if (
+                serverContent
+                  ?.turnComplete
+              ) {
+                safeSend(
+                  websocket,
+                  {
+                    type:
+                      "conversation.turn-complete",
+
+                    event:
+                      "conversation:turn-complete",
+                  }
+                );
+              }
+
+              if (
+                serverContent
+                  ?.interrupted
+              ) {
+                safeSend(
+                  websocket,
+                  {
+                    type:
+                      "conversation.interrupted",
+
+                    event:
+                      "conversation:interrupted",
+                  }
+                );
+              }
+
+              const inputTranscript =
+                serverContent
+                  ?.inputTranscription
+                  ?.text;
+
+              if (
+                inputTranscript
+              ) {
+                safeSend(
+                  websocket,
+                  {
+                    type:
+                      "transcript.user",
+
+                    event:
+                      "transcript:user",
+
+                    text:
+                      inputTranscript,
+                  }
+                );
+              }
+
+              const outputTranscript =
+                serverContent
+                  ?.outputTranscription
+                  ?.text;
+
+              if (
+                outputTranscript
+              ) {
+                safeSend(
+                  websocket,
+                  {
+                    type:
+                      "transcript.assistant",
+
+                    event:
+                      "transcript:assistant",
+
+                    text:
+                      outputTranscript,
+                  }
+                );
+              }
+            } catch (error) {
+              console.error(
+                "GEMINI MESSAGE PROCESSING ERROR:",
+                error
+              );
+            }
           },
 
-          tools: [
+          onerror: (
+            error
+          ) => {
+            console.error(
+              "GEMINI LIVE ERROR:",
+              error
+            );
+
+            safeSend(
+              websocket,
+              {
+                type:
+                  "gemini.error",
+
+                event:
+                  "session:error",
+
+                message:
+                  error?.message ||
+                  "Gemini Live error.",
+              }
+            );
+          },
+
+          onclose: (
+            event
+          ) => {
+            console.log(
+              "GEMINI LIVE CLOSED:",
+              event
+            );
+
+            safeSend(
+              websocket,
+              {
+                type:
+                  "gemini.closed",
+
+                event:
+                  "gemini:closed",
+
+                reason:
+                  event?.reason ||
+                  "Gemini Live connection closed.",
+              }
+            );
+          },
+        },
+      });
+
+    return session;
+  };
+
+/* =========================================================
+   SEND TEXT
+========================================================= */
+
+const sendTextToGeminiLive =
+  async ({
+    liveSession,
+    text,
+  }) => {
+    const normalizedText =
+      String(
+        text || ""
+      ).trim();
+
+    if (!normalizedText) {
+      throw new Error(
+        "Text is required."
+      );
+    }
+
+    if (!liveSession) {
+      throw new Error(
+        "Gemini Live session is unavailable."
+      );
+    }
+
+    if (
+      typeof liveSession
+        .sendClientContent ===
+      "function"
+    ) {
+      await liveSession
+        .sendClientContent({
+          turns: [
             {
-              functionDeclarations: [
+              role:
+                "user",
+
+              parts: [
                 {
-                  name:
-                    "search_product_knowledge",
-
-                  description:
-                    "Search the AI Twin's uploaded brand, FAQ, shipping, returns, warranty, policy and product knowledge.",
-
-                  parameters: {
-                    type:
-                      Type.OBJECT,
-
-                    properties: {
-                      query: {
-                        type:
-                          Type.STRING,
-
-                        description:
-                          "The customer question or knowledge search query.",
-                      },
-                    },
-
-                    required: [
-                      "query",
-                    ],
-                  },
-                },
-
-                {
-                  name:
-                    "get_product_details",
-
-                  description:
-                    "Get current product name, description, price, offer price, stock and availability.",
-
-                  parameters: {
-                    type:
-                      Type.OBJECT,
-
-                    properties: {
-                      productId: {
-                        type:
-                          Type.STRING,
-
-                        description:
-                          "MongoDB product ID. Use the selected product ID when available.",
-                      },
-                    },
-
-                    required: [],
-                  },
+                  text:
+                    normalizedText,
                 },
               ],
             },
           ],
+
+          turnComplete:
+            true,
+        });
+
+      return;
+    }
+
+    if (
+      typeof liveSession.send ===
+      "function"
+    ) {
+      await liveSession.send({
+        clientContent: {
+          turns: [
+            {
+              role:
+                "user",
+
+              parts: [
+                {
+                  text:
+                    normalizedText,
+                },
+              ],
+            },
+          ],
+
+          turnComplete:
+            true,
         },
       });
 
-    return {
-      id: internalSessionId,
+      return;
+    }
 
-      get isClosed() {
-        return closed;
-      },
-
-      get toolCallInProgress() {
-        return toolCallInProgress;
-      },
-
-      sendAudio({
-        buffer,
-        mimeType =
-          "audio/pcm;rate=16000",
-      }) {
-        if (closed) {
-          throw new Error(
-            "Gemini Live session is closed."
-          );
-        }
-
-        if (
-          toolCallInProgress
-        ) {
-          return false;
-        }
-
-        if (
-          !Buffer.isBuffer(
-            buffer
-          ) ||
-          !buffer.length
-        ) {
-          return false;
-        }
-
-        liveSession.sendRealtimeInput({
-          audio: {
-            data:
-              buffer.toString(
-                "base64"
-              ),
-
-            mimeType,
-          },
-        });
-
-        return true;
-      },
-
-      sendText(text) {
-        if (closed) {
-          throw new Error(
-            "Gemini Live session is closed."
-          );
-        }
-
-        if (
-          toolCallInProgress
-        ) {
-          return false;
-        }
-
-        const normalized =
-          String(text || "").trim();
-
-        if (!normalized) {
-          return false;
-        }
-
-        liveSession.sendRealtimeInput({
-          text: normalized,
-        });
-
-        return true;
-      },
-
-      endAudioStream() {
-        if (closed) {
-          return;
-        }
-
-        liveSession.sendRealtimeInput({
-          audioStreamEnd: true,
-        });
-      },
-
-      activityStart() {
-        if (closed) {
-          return;
-        }
-
-        liveSession.sendRealtimeInput({
-          activityStart: {},
-        });
-      },
-
-      activityEnd() {
-        if (closed) {
-          return;
-        }
-
-        liveSession.sendRealtimeInput({
-          activityEnd: {},
-        });
-      },
-
-      close() {
-        if (closed) {
-          return;
-        }
-
-        closed = true;
-
-        liveSession.close();
-      },
-    };
+    throw new Error(
+      "Gemini Live session does not support text messages."
+    );
   };
+
+/* =========================================================
+   CLOSE CONNECTION
+========================================================= */
+
+const closeGeminiLiveConnection =
+  async (
+    liveSession
+  ) => {
+    if (!liveSession) {
+      return;
+    }
+
+    if (
+      typeof liveSession.close ===
+      "function"
+    ) {
+      await liveSession.close();
+
+      return;
+    }
+
+    if (
+      typeof liveSession.disconnect ===
+      "function"
+    ) {
+      await liveSession
+        .disconnect();
+    }
+  };
+
+/* =========================================================
+   EXPORTS
+========================================================= */
+
+module.exports = {
+  createGeminiLiveConnection,
+  sendTextToGeminiLive,
+  closeGeminiLiveConnection,
+  liveModel,
+};
