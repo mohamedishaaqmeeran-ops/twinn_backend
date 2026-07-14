@@ -1,6 +1,8 @@
 const express = require("express");
 
-const controller = require(
+const router = express.Router();
+
+const realtimeController = require(
   "./realtime.controller"
 );
 
@@ -10,24 +12,66 @@ const {
   "../../middleware/auth.middleware"
 );
 
-const router =
-  express.Router();
+/* =========================================================
+   DEBUG CHECKS
+========================================================= */
 
-router.use(protect);
+if (
+  typeof protect !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: protect middleware is not a function. Check auth.middleware exports."
+  );
+}
+
+if (
+  typeof realtimeController.createSession !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: createSession controller is not exported."
+  );
+}
+
+if (
+  typeof realtimeController.getSession !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: getSession controller is not exported."
+  );
+}
+
+if (
+  typeof realtimeController.closeSession !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: closeSession controller is not exported."
+  );
+}
+
+/* =========================================================
+   ROUTES
+========================================================= */
 
 router.post(
   "/sessions",
-  controller.createSession
+  protect,
+  realtimeController.createSession
 );
 
 router.get(
   "/sessions/:id",
-  controller.getSession
+  protect,
+  realtimeController.getSession
 );
 
-router.delete(
-  "/sessions/:id",
-  controller.endSession
+router.patch(
+  "/sessions/:id/close",
+  protect,
+  realtimeController.closeSession
 );
 
 module.exports = router;

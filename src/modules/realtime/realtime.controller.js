@@ -1,102 +1,259 @@
-const crypto = require("crypto");
+const RealtimeSession = require(
+  "../../models/RealtimeSession"
+);
 
-const Twin = require("../../models/Twin");
-const Product = require("../../models/Product");
-const RealtimeSession = require("../../models/RealtimeSession");
+const Twin = require(
+  "../../models/Twin"
+);
 
-exports.createSession = async (req, res) => {
-  try {
-    const userId = req.user._id;
+const Product = require(
+  "../../models/Product"
+);
 
-    const {
-      twinId,
-      productId = null,
-      language = "English",
-      mode = "test",
-    } = req.body;
+/* =========================================================
+   CREATE SESSION
+========================================================= */
 
-    if (!twinId) {
-      return res.status(400).json({
-        success: false,
-        message: "Twin ID is required.",
-      });
-    }
+exports.createSession =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user._id;
 
-    /*
-     * Critical:
-     * Search using both _id and userId.
-     * This prevents access to another user's Twin.
-     */
-    const twin = await Twin.findOne({
-      _id: twinId,
-      userId,
-      status: {
-        $ne: "inactive",
-      },
-    });
+      const {
+        twinId,
+        productId,
+        mode = "test",
+        language = "English",
+      } = req.body;
 
-    if (!twin) {
-      return res.status(404).json({
-        success: false,
-        message: "AI Twin not found.",
-      });
-    }
+      if (!twinId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Twin ID is required.",
+          });
+      }
 
-    let product = null;
+      if (!productId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Product ID is required.",
+          });
+      }
 
-    if (productId) {
       /*
-       * Critical:
-       * Product must belong to the authenticated user.
+       * Verify that the Twin belongs
+       * to the authenticated user.
        */
-      product = await Product.findOne({
-        _id: productId,
-        userId,
-        status: "active",
-      });
+      const twin =
+        await Twin.findOne({
+          _id: twinId,
+          userId,
+          status: {
+            $ne: "inactive",
+          },
+        });
+
+      if (!twin) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "AI Twin not found.",
+          });
+      }
+
+      /*
+       * Verify that the product belongs
+       * to the authenticated user.
+       */
+      const product =
+        await Product.findOne({
+          _id: productId,
+          userId,
+          status: {
+            $ne: "inactive",
+          },
+        });
 
       if (!product) {
-        return res.status(404).json({
-          success: false,
-          message:
-            "Product not found or you do not have permission to access it.",
-        });
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "Product not found.",
+          });
       }
+
+      const session =
+        await RealtimeSession.create({
+          userId,
+          twinId:
+            twin._id,
+          productId:
+            product._id,
+          mode,
+          language,
+          status:
+            "creating",
+        });
+
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Realtime session created.",
+
+          session,
+        });
+    } catch (error) {
+      console.error(
+        "CREATE REALTIME SESSION ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to create realtime session.",
+        });
     }
+  };
 
-    const socketToken = crypto
-      .randomBytes(32)
-      .toString("hex");
+/* =========================================================
+   GET SESSION
+========================================================= */
 
-    const session = await RealtimeSession.create({
-      userId,
-      twinId: twin._id,
-      productId: product?._id || null,
-      language,
-      mode,
-      socketToken,
-      status: "creating",
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    });
+exports.getSession =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user._id;
 
-    return res.status(201).json({
-      success: true,
-      message: "Realtime session created.",
-      session: {
-        _id: session._id,
-        twinId: session.twinId,
-        productId: session.productId,
-        language: session.language,
-        mode: session.mode,
-        socketToken,
-      },
-    });
-  } catch (error) {
-    console.error("CREATE REALTIME SESSION ERROR:", error);
+      const session =
+        await RealtimeSession.findOne({
+          _id: req.params.id,
+          userId,
+        })
+          .populate(
+            "twinId",
+            "name image appearance voice voiceName"
+          )
+          .populate(
+            "productId",
+            "name description price currency image status"
+          );
 
-    return res.status(500).json({
-      success: false,
-      message: "Unable to create realtime session.",
-    });
-  }
-};
+      if (!session) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Realtime session not found.",
+          });
+      }
+
+      return res.json({
+        success: true,
+        session,
+      });
+    } catch (error) {
+      console.error(
+        "GET REALTIME SESSION ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to load realtime session.",
+        });
+    }
+  };
+
+/* =========================================================
+   CLOSE SESSION
+========================================================= */
+
+exports.closeSession =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user._id;
+
+      const session =
+        await RealtimeSession.findOneAndUpdate(
+          {
+            _id: req.params.id,
+            userId,
+          },
+          {
+            $set: {
+              status:
+                "closed",
+
+              endedAt:
+                new Date(),
+            },
+          },
+          {
+            new: true,
+          }
+        );
+
+      if (!session) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+
+            message:
+              "Realtime session not found.",
+          });
+      }
+
+      return res.json({
+        success: true,
+
+        message:
+          "Realtime session closed.",
+
+        session,
+      });
+    } catch (error) {
+      console.error(
+        "CLOSE REALTIME SESSION ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to close realtime session.",
+        });
+    }
+  };
