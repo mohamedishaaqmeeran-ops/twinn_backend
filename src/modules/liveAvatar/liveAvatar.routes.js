@@ -12,11 +12,20 @@ const {
 
 const router = express.Router();
 
+/*
+ * All LiveAvatar routes require
+ * your existing login cookie.
+ */
 router.use(protect);
 
 router.post(
   "/embeddings",
   controller.createEmbed
+);
+
+router.get(
+  "/test",
+  controller.testConfiguration
 );
 
 module.exports = router;
