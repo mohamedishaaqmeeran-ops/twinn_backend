@@ -61,8 +61,22 @@ const createGeminiLiveConnection =
 
         config: {
           responseModalities: [
-            "TEXT",
-          ],
+  "AUDIO",
+],
+
+inputAudioTranscription: {},
+
+outputAudioTranscription: {},
+
+speechConfig: {
+  voiceConfig: {
+    prebuiltVoiceConfig: {
+      voiceName:
+        process.env.GEMINI_LIVE_VOICE ||
+        "Kore",
+    },
+  },
+},
 
           systemInstruction: {
             parts: [
