@@ -2,8 +2,21 @@ const fetch = require("node-fetch");
 const fs = require("fs");
 const { spawn } = require("child_process");
 
-const Connection =
-  require("../../models/Connection");
+
+const ffmpegPath = require(
+  "ffmpeg-static"
+);
+
+const Connection = require(
+  "../../models/Connection"
+);
+
+const youtubeProcessManager =
+  require(
+    "./youtubeProcess.manager"
+  );
+
+
 
 const runningStreams = new Map();
 
@@ -540,5 +553,342 @@ class LiveService {
     return results;
   }
 }
+
+const isHttpVideoUrl = (
+  value
+) => {
+  try {
+    const url = new URL(
+      String(value)
+    );
+
+    return (
+      url.protocol ===
+        "http:" ||
+      url.protocol ===
+        "https:"
+    );
+  } catch (_) {
+    return false;
+  }
+};
+
+/* =========================================================
+   START YOUTUBE RTMP
+========================================================= */
+
+exports.startYouTubeRTMP =
+  async (
+    userId,
+    payload
+  ) => {
+    const videoPath = String(
+      payload.videoPath || ""
+    ).trim();
+
+    if (!videoPath) {
+      throw new Error(
+        "Video path is required."
+      );
+    }
+
+    if (
+      !isHttpVideoUrl(
+        videoPath
+      )
+    ) {
+      throw new Error(
+        "Video path must be a valid HTTP or HTTPS URL."
+      );
+    }
+
+    const connection =
+      await Connection.findOne({
+        userId,
+        platform: "youtube",
+        connected: true,
+      }).select(
+        "+youtubeStreamKey"
+      );
+
+    if (!connection) {
+      throw new Error(
+        "YouTube is not connected."
+      );
+    }
+
+    if (
+      !connection
+        .youtubeStreamUrl ||
+      !connection
+        .youtubeStreamKey ||
+      !connection
+        .youtubeBroadcastId ||
+      !connection
+        .youtubeStreamId
+    ) {
+      throw new Error(
+        "Create the YouTube broadcast before starting RTMP."
+      );
+    }
+
+    const existingProcess =
+      youtubeProcessManager
+        .getProcess(userId);
+
+    if (
+      existingProcess &&
+      !existingProcess.killed
+    ) {
+      throw new Error(
+        "A YouTube streaming process is already running."
+      );
+    }
+
+    const rtmpDestination =
+      `${connection.youtubeStreamUrl.replace(
+        /\/+$/,
+        ""
+      )}/${connection.youtubeStreamKey.replace(
+        /^\/+/,
+        ""
+      )}`;
+
+    const args = [
+      "-hide_banner",
+      "-loglevel",
+      "info",
+
+      /*
+       * Read input in real time.
+       */
+      "-re",
+
+      /*
+       * Repeat the uploaded video.
+       * Remove these two arguments
+       * to play it only once.
+       */
+      "-stream_loop",
+      "-1",
+
+      "-i",
+      videoPath,
+
+      /*
+       * Video encoding.
+       */
+      "-c:v",
+      "libx264",
+
+      "-preset",
+      "veryfast",
+
+      "-profile:v",
+      "high",
+
+      "-level",
+      "4.1",
+
+      "-pix_fmt",
+      "yuv420p",
+
+      "-r",
+      "30",
+
+      "-g",
+      "60",
+
+      "-keyint_min",
+      "60",
+
+      "-sc_threshold",
+      "0",
+
+      "-b:v",
+      "3500k",
+
+      "-maxrate",
+      "3500k",
+
+      "-bufsize",
+      "7000k",
+
+      /*
+       * Audio encoding.
+       */
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      "128k",
+
+      "-ar",
+      "44100",
+
+      "-ac",
+      "2",
+
+      /*
+       * Output format.
+       */
+      "-f",
+      "flv",
+
+      rtmpDestination,
+    ];
+
+    console.log(
+      "STARTING YOUTUBE FFMPEG"
+    );
+
+    const ffmpegProcess =
+      spawn(
+        ffmpegPath,
+        args,
+        {
+          stdio: [
+            "ignore",
+            "pipe",
+            "pipe",
+          ],
+        }
+      );
+
+    youtubeProcessManager
+      .setProcess(
+        userId,
+        ffmpegProcess
+      );
+
+    connection.youtubeLiveStatus =
+      "streaming";
+
+    await connection.save();
+
+    ffmpegProcess.stdout.on(
+      "data",
+      (data) => {
+        console.log(
+          "YOUTUBE FFMPEG:",
+          data.toString()
+        );
+      }
+    );
+
+    ffmpegProcess.stderr.on(
+      "data",
+      (data) => {
+        console.log(
+          "YOUTUBE FFMPEG:",
+          data.toString()
+        );
+      }
+    );
+
+    ffmpegProcess.on(
+      "error",
+      async (error) => {
+        console.error(
+          "YOUTUBE FFMPEG PROCESS ERROR:",
+          error
+        );
+
+        youtubeProcessManager
+          .removeProcess(userId);
+
+        await Connection.updateOne(
+          {
+            userId,
+            platform: "youtube",
+          },
+          {
+            $set: {
+              youtubeLiveStatus:
+                "failed",
+            },
+          }
+        ).catch(() => {});
+      }
+    );
+
+    ffmpegProcess.on(
+      "close",
+      async (code, signal) => {
+        console.log(
+          "YOUTUBE FFMPEG CLOSED:",
+          {
+            code,
+            signal,
+          }
+        );
+
+        youtubeProcessManager
+          .removeProcess(userId);
+
+        await Connection.updateOne(
+          {
+            userId,
+            platform: "youtube",
+          },
+          {
+            $set: {
+              youtubeLiveStatus:
+                code === 0
+                  ? "complete"
+                  : "failed",
+            },
+          }
+        ).catch(() => {});
+      }
+    );
+
+    return {
+      started: true,
+
+      processId:
+        ffmpegProcess.pid,
+
+      broadcastId:
+        connection
+          .youtubeBroadcastId,
+
+      streamId:
+        connection
+          .youtubeStreamId,
+
+      watchUrl:
+        connection
+          .youtubeWatchUrl,
+    };
+  };
+
+/* =========================================================
+   STOP YOUTUBE RTMP
+========================================================= */
+
+exports.stopYouTubeRTMP =
+  async (userId) => {
+    const stopped =
+      youtubeProcessManager
+        .stopProcess(userId);
+
+    await Connection.updateOne(
+      {
+        userId,
+        platform: "youtube",
+      },
+      {
+        $set: {
+          youtubeLiveStatus:
+            "complete",
+        },
+      }
+    );
+
+    return {
+      stopped,
+    };
+  };
 
 module.exports = new LiveService();

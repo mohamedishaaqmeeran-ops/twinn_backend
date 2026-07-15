@@ -94,3 +94,78 @@ exports.stopFacebookLive = async (req, res) => {
     });
   }
 };
+
+/* =========================================================
+   START YOUTUBE RTMP
+========================================================= */
+
+exports.startYouTubeRTMP =
+  async (req, res) => {
+    try {
+      const result =
+        await liveService
+          .startYouTubeRTMP(
+            req.user.id,
+            req.body
+          );
+
+      return res.json({
+        success: true,
+
+        message:
+          "YouTube RTMP stream started.",
+
+        data: result,
+      });
+    } catch (error) {
+      console.error(
+        "START YOUTUBE RTMP ERROR:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          error.message ||
+          "Unable to start YouTube RTMP stream.",
+      });
+    }
+  };
+
+/* =========================================================
+   STOP YOUTUBE RTMP
+========================================================= */
+
+exports.stopYouTubeRTMP =
+  async (req, res) => {
+    try {
+      const result =
+        await liveService
+          .stopYouTubeRTMP(
+            req.user.id
+          );
+
+      return res.json({
+        success: true,
+
+        message:
+          "YouTube RTMP stream stopped.",
+
+        data: result,
+      });
+    } catch (error) {
+      console.error(
+        "STOP YOUTUBE RTMP ERROR:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          error.message ||
+          "Unable to stop YouTube RTMP stream.",
+      });
+    }
+  };
