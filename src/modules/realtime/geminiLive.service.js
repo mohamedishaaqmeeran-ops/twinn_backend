@@ -433,6 +433,98 @@ const closeGeminiLiveConnection =
     }
   };
 
+
+  /* =========================================================
+   SEND REALTIME AUDIO TO GEMINI
+========================================================= */
+
+const sendAudioToGeminiLive = async ({
+  liveSession,
+  audio,
+  mimeType = "audio/pcm;rate=16000",
+}) => {
+  if (!liveSession) {
+    throw new Error(
+      "Gemini Live session is unavailable."
+    );
+  }
+
+  if (!audio) {
+    return;
+  }
+
+  if (
+    typeof liveSession.sendRealtimeInput !==
+    "function"
+  ) {
+    throw new Error(
+      "Gemini Live session does not support realtime audio input."
+    );
+  }
+
+  await liveSession.sendRealtimeInput({
+    media: {
+      data: audio,
+      mimeType:
+        mimeType ||
+        "audio/pcm;rate=16000",
+    },
+  });
+};
+
+/* =========================================================
+   START USER AUDIO ACTIVITY
+========================================================= */
+
+const startGeminiAudioActivity = async (
+  liveSession
+) => {
+  if (
+    !liveSession ||
+    typeof liveSession.sendRealtimeInput !==
+      "function"
+  ) {
+    return;
+  }
+
+  try {
+    await liveSession.sendRealtimeInput({
+      activityStart: {},
+    });
+  } catch (error) {
+    console.warn(
+      "GEMINI AUDIO START WARNING:",
+      error?.message
+    );
+  }
+};
+
+/* =========================================================
+   END USER AUDIO ACTIVITY
+========================================================= */
+
+const endGeminiAudioActivity = async (
+  liveSession
+) => {
+  if (
+    !liveSession ||
+    typeof liveSession.sendRealtimeInput !==
+      "function"
+  ) {
+    return;
+  }
+
+  try {
+    await liveSession.sendRealtimeInput({
+      audioStreamEnd: true,
+    });
+  } catch (error) {
+    console.warn(
+      "GEMINI AUDIO END WARNING:",
+      error?.message
+    );
+  }
+};
 /* =========================================================
    EXPORTS
 ========================================================= */
@@ -440,6 +532,10 @@ const closeGeminiLiveConnection =
 module.exports = {
   createGeminiLiveConnection,
   sendTextToGeminiLive,
+  sendAudioToGeminiLive,
+    startGeminiAudioActivity,
+    endGeminiAudioActivity,
+    
   closeGeminiLiveConnection,
   liveModel,
 };
