@@ -19,5 +19,9 @@ router.get("/", c.getTwins);
 router.get("/:id/knowledge", c.getKnowledge);
 router.get("/:id/conversations", c.getConversations);
 router.get("/:id", c.getTwin);
+router.patch(
+  "/:id",
+  controller.updateTwin
+);
 router.delete("/:id", c.deleteTwin);
 module.exports = router;

@@ -18,3 +18,36 @@ exports.getTwin = async (req,res) => { try { res.json({ success:true, twin:await
 exports.getKnowledge = async (req,res) => { try { const knowledge = await service.getKnowledge({ userId:userId(req), twinId:req.params.id, productId:req.query.productId || null }); res.json({ success:true, count:knowledge.length, knowledge }); } catch(e){ fail(res,e,"Unable to load knowledge."); } };
 exports.getConversations = async (req,res) => { try { res.json({ success:true, conversations:await service.getConversations({ userId:userId(req), twinId:req.params.id }) }); } catch(e){ fail(res,e,"Unable to load conversations."); } };
 exports.deleteTwin = async (req,res) => { try { const twin = await service.deleteTwin({ userId:userId(req), twinId:req.params.id }); res.json({ success:true, message:"AI Twin deleted successfully.", deletedTwinId:twin._id }); } catch(e){ fail(res,e,"Unable to delete AI Twin."); } };
+exports.updateTwin = async (
+  req,
+  res
+) => {
+  try {
+    const twin =
+      await twinService.updateTwin({
+        userId:
+          getUserId(req),
+
+        twinId:
+          req.params.id,
+
+        payload:
+          req.body,
+      });
+
+    return res.json({
+      success: true,
+
+      message:
+        "AI Twin updated successfully.",
+
+      twin,
+    });
+  } catch (error) {
+    return sendError(
+      res,
+      error,
+      "Unable to update AI Twin."
+    );
+  }
+};

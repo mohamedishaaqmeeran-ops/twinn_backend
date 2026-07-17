@@ -117,4 +117,139 @@ exports.getTwin = async ({ userId, twinId }) => (await getOwnedTwin({ userId, tw
 exports.getKnowledge = async ({ userId, twinId, productId = null }) => { await getOwnedTwin({ userId, twinId }); const filter = { userId, twinId, status: "ready" }; if (productId) filter.productId = productId; return KnowledgeChunk.find(filter).select("-embedding").sort({ createdAt: -1 }); };
 exports.getConversations = async ({ userId, twinId }) => { await getOwnedTwin({ userId, twinId }); return Conversation.find({ userId, twinId }).sort({ updatedAt: -1 }).limit(50); };
 exports.deleteTwin = async ({ userId, twinId }) => { const twin = await getOwnedTwin({ userId, twinId, includeInactive: true }); await Promise.all([KnowledgeChunk.deleteMany({ userId, twinId }), Conversation.deleteMany({ userId, twinId }), AvatarGeneration.deleteMany({ userId, twinId })]); await Twin.deleteOne({ _id: twinId, userId }); return twin; };
+exports.updateTwin = async ({
+  userId,
+  twinId,
+  payload = {},
+}) => {
+  const twin =
+    await getOwnedTwin({
+      userId,
+      twinId,
+    });
+
+  if (
+    payload.name !==
+    undefined
+  ) {
+    const name =
+      String(
+        payload.name || ""
+      ).trim();
+
+    if (!name) {
+      throw createError(
+        "AI Twin name is required.",
+        400
+      );
+    }
+
+    twin.name = name;
+  }
+
+  if (
+    payload.brandName !==
+    undefined
+  ) {
+    twin.brandName =
+      String(
+        payload.brandName ||
+          ""
+      ).trim();
+  }
+
+  if (
+    payload.brandDescription !==
+    undefined
+  ) {
+    const description =
+      String(
+        payload
+          .brandDescription ||
+          ""
+      ).trim();
+
+    if (!description) {
+      throw createError(
+        "Brand description is required.",
+        400
+      );
+    }
+
+    twin.brandDescription =
+      description;
+  }
+
+  if (
+    payload.industry !==
+    undefined
+  ) {
+    twin.industry =
+      String(
+        payload.industry ||
+          "General"
+      ).trim();
+  }
+
+  if (
+    payload.purpose !==
+    undefined
+  ) {
+    twin.purpose =
+      String(
+        payload.purpose ||
+          ""
+      ).trim();
+  }
+
+  if (
+    payload.targetAudience !==
+    undefined
+  ) {
+    twin.targetAudience =
+      String(
+        payload
+          .targetAudience ||
+          ""
+      ).trim();
+  }
+
+  if (
+    payload.personality !==
+    undefined
+  ) {
+    twin.personality =
+      String(
+        payload.personality ||
+          "Friendly"
+      ).trim();
+  }
+
+  if (
+    payload.tone !==
+    undefined
+  ) {
+    twin.tone =
+      String(
+        payload.tone ||
+          "Helpful"
+      ).trim();
+  }
+
+  if (
+    payload.primaryLanguage !==
+    undefined
+  ) {
+    twin.primaryLanguage =
+      String(
+        payload
+          .primaryLanguage ||
+          "English"
+      ).trim();
+  }
+
+  await twin.save();
+
+  return twin;
+};
 exports.getOwnedTwin = getOwnedTwin;
