@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+
 const Twin = require("../../models/Twin");
 const Product = require("../../models/Product");
 const KnowledgeChunk = require("../../models/KnowledgeChunk");
@@ -39,58 +41,128 @@ exports.loadRealtimeContext = async ({
   sessionId,
   socketToken,
 }) => {
+  /* =======================================================
+     VALIDATE SESSION INPUT
+  ======================================================= */
+
+  if (
+    !sessionId ||
+    !mongoose.Types.ObjectId.isValid(sessionId)
+  ) {
+    throw new Error("Invalid realtime session ID.");
+  }
+
+  if (!socketToken) {
+    throw new Error("Realtime socket token is required.");
+  }
+
+  /* =======================================================
+     LOAD REALTIME SESSION
+  ======================================================= */
+
   const session = await RealtimeSession.findOne({
     _id: sessionId,
+
     socketToken,
+
     expiresAt: {
       $gt: new Date(),
     },
+
     status: {
-      $in: ["creating", "active"],
+      $in: [
+        "created",
+        "creating",
+        "connecting",
+        "active",
+      ],
     },
   }).lean();
 
   if (!session) {
-    throw new Error("Invalid or expired realtime session.");
+    console.error("REALTIME SESSION LOOKUP FAILED:", {
+      sessionId,
+      hasSocketToken: Boolean(socketToken),
+      currentTime: new Date().toISOString(),
+    });
+
+    throw new Error(
+      "Invalid or expired realtime session."
+    );
   }
 
-  /*
-   * Do not take userId from the WebSocket message.
-   * Use the userId stored in the verified session.
-   */
   const userId = session.userId;
   const twinId = session.twinId;
+
+  /* =======================================================
+     VALIDATE SESSION REFERENCES
+  ======================================================= */
+
+  if (
+    !userId ||
+    !mongoose.Types.ObjectId.isValid(userId)
+  ) {
+    throw new Error(
+      "Realtime session contains an invalid user ID."
+    );
+  }
+
+  if (
+    !twinId ||
+    !mongoose.Types.ObjectId.isValid(twinId)
+  ) {
+    throw new Error(
+      "Realtime session contains an invalid Twin ID."
+    );
+  }
+
+  /* =======================================================
+     LOAD OWNED AI TWIN
+  ======================================================= */
 
   const twin = await Twin.findOne({
     _id: twinId,
     userId,
+
     status: {
       $ne: "inactive",
     },
   }).lean();
 
   if (!twin) {
-    throw new Error("AI Twin not found.");
+    console.error("REALTIME TWIN LOOKUP FAILED:", {
+      userId: String(userId),
+      twinId: String(twinId),
+    });
+
+    throw new Error(
+      "AI Twin was not found for this realtime session."
+    );
   }
+
+  /* =======================================================
+     LOAD PRODUCTS
+  ======================================================= */
 
   let products = [];
 
   if (session.productId) {
-    /*
-     * Selected-product mode:
-     * Avatar can discuss only this one product.
-     */
+    if (
+      !mongoose.Types.ObjectId.isValid(
+        session.productId
+      )
+    ) {
+      throw new Error(
+        "Realtime session contains an invalid product ID."
+      );
+    }
+
     products = await Product.find({
       _id: session.productId,
       userId,
       status: "active",
     }).lean();
   } else {
-    /*
-     * User-catalogue mode:
-     * Avatar can discuss all products of this user,
-     * but never another user's products.
-     */
     products = await Product.find({
       userId,
       status: "active",
@@ -102,16 +174,16 @@ exports.loadRealtimeContext = async ({
       .lean();
   }
 
+  /* =======================================================
+     LOAD KNOWLEDGE
+  ======================================================= */
+
   const knowledgeFilter = {
     userId,
     twinId,
     status: "ready",
   };
 
-  /*
-   * Add productId to KnowledgeChunk and apply this filter
-   * when the knowledge is specific to a product.
-   */
   if (session.productId) {
     knowledgeFilter.$or = [
       {
@@ -131,7 +203,9 @@ exports.loadRealtimeContext = async ({
   const knowledgeChunks = await KnowledgeChunk.find(
     knowledgeFilter
   )
-    .select("sourceTitle content productId")
+    .select(
+      "sourceTitle content productId"
+    )
     .limit(50)
     .lean();
 
