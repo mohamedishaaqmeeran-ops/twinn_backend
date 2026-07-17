@@ -442,7 +442,257 @@ const handleFacebookCallback =
       }
     );
   };
+/* =========================================================
+   FETCH INSTAGRAM PROFILE
+========================================================= */
 
+const fetchInstagramProfile =
+  async ({
+    instagramAccountId,
+    pageAccessToken,
+  }) => {
+    if (!instagramAccountId) {
+      throw new Error(
+        "Instagram account ID is missing."
+      );
+    }
+
+    if (!pageAccessToken) {
+      throw new Error(
+        "Facebook Page access token is missing."
+      );
+    }
+
+    const fields = [
+      "id",
+      "username",
+      "name",
+      "profile_picture_url",
+    ].join(",");
+
+    const profileUrl =
+      `https://graph.facebook.com/${META_VERSION}/${instagramAccountId}` +
+      `?fields=${encodeURIComponent(fields)}` +
+      `&access_token=${encodeURIComponent(pageAccessToken)}`;
+
+    const profileResponse =
+      await fetch(
+        profileUrl
+      );
+
+    const profileData =
+      await profileResponse
+        .json()
+        .catch(() => ({}));
+
+    if (
+      !profileResponse.ok ||
+      profileData.error
+    ) {
+      throw new Error(
+        profileData.error
+          ?.message ||
+          "Unable to fetch Instagram profile."
+      );
+    }
+
+    return profileData;
+  };
+
+/* =========================================================
+   HANDLE INSTAGRAM CALLBACK
+========================================================= */
+
+const handleInstagramCallback =
+  async (
+    code,
+    userId
+  ) => {
+    const tokenData =
+      await exchangeMetaCode(
+        "instagram",
+        code
+      );
+
+    const pages =
+      await fetchFacebookPages(
+        tokenData.access_token,
+        true
+      );
+
+    if (!pages.length) {
+      throw new Error(
+        "No Facebook Page found for this user."
+      );
+    }
+
+    const pageWithInstagram =
+      pages.find(
+        (page) =>
+          page
+            .instagram_business_account
+            ?.id &&
+          page.access_token
+      );
+
+    if (!pageWithInstagram) {
+      throw new Error(
+        "No Instagram professional account linked to a manageable Facebook Page was found."
+      );
+    }
+
+    const pageAccessToken =
+      pageWithInstagram
+        .access_token;
+
+    const embeddedInstagram =
+      pageWithInstagram
+        .instagram_business_account;
+
+    const instagramAccountId =
+      embeddedInstagram?.id;
+
+    if (!instagramAccountId) {
+      throw new Error(
+        "Instagram account ID was not returned."
+      );
+    }
+
+    let instagramProfile =
+      embeddedInstagram;
+
+    try {
+      instagramProfile =
+        await fetchInstagramProfile({
+          instagramAccountId,
+          pageAccessToken,
+        });
+    } catch (profileError) {
+      console.error(
+        "INSTAGRAM PROFILE FETCH ERROR:",
+        profileError.message
+      );
+    }
+
+    const instagramUsername =
+      instagramProfile?.username ||
+      embeddedInstagram?.username ||
+      "";
+
+    const instagramName =
+      instagramProfile?.name ||
+      embeddedInstagram?.name ||
+      instagramUsername ||
+      "Instagram Account";
+
+    const avatarUrl =
+      instagramProfile
+        ?.profile_picture_url ||
+      embeddedInstagram
+        ?.profile_picture_url ||
+      "";
+
+    console.log(
+      "INSTAGRAM CONNECTION PROFILE:",
+      {
+        instagramAccountId,
+        instagramUsername,
+        instagramName,
+
+        avatarAvailable:
+          Boolean(
+            avatarUrl
+          ),
+
+        pageId:
+          pageWithInstagram.id,
+
+        pageName:
+          pageWithInstagram.name,
+      }
+    );
+        return Connection.findOneAndUpdate(
+      {
+        userId,
+        platform: "instagram",
+      },
+      {
+        $set: {
+          userId,
+          platform: "instagram",
+
+          platformUserId:
+            instagramAccountId,
+
+          instagramAccountId,
+
+          username:
+            instagramUsername,
+
+          platformUsername:
+            instagramUsername,
+
+          instagramUsername,
+
+          name:
+            instagramName,
+
+          avatarUrl,
+
+          profilePictureUrl:
+            avatarUrl,
+
+          pageId:
+            pageWithInstagram.id,
+
+          pageName:
+            pageWithInstagram.name ||
+            "",
+
+          pageAccessToken,
+
+          accessToken:
+            tokenData.access_token,
+
+          connected: true,
+
+          metadata: {
+            instagramAccountId,
+
+            username:
+              instagramUsername,
+
+            name:
+              instagramName,
+
+            profile_picture_url:
+              avatarUrl,
+
+            facebookPageId:
+              pageWithInstagram.id,
+
+            facebookPageName:
+              pageWithInstagram.name ||
+              "",
+
+            tokenType:
+              tokenData.token_type ||
+              "bearer",
+
+            tokenExpiresIn:
+              tokenData.expires_in ||
+              null,
+          },
+        },
+      },
+      {
+        upsert: true,
+        new: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      }
+    );
+  };
 /* =========================================================
    HANDLE INSTAGRAM CALLBACK
 ========================================================= */
