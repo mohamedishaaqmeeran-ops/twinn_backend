@@ -90,12 +90,13 @@ const realtimeSessionSchema =
           String,
 
         enum: [
-          "created",
-          "connecting",
-          "active",
-          "closed",
-          "ended",
-          "failed",
+           "created",
+  "creating",
+  "connecting",
+  "active",
+  "closed",
+  "ended",
+  "failed",
         ],
 
         default:
