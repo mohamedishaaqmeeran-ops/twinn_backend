@@ -1,4 +1,3 @@
-
 const {
   WebSocketServer,
   WebSocket,
@@ -33,7 +32,7 @@ const {
 ========================================================= */
 
 const REALTIME_PATH =
-  "/ws/realtime";
+  "/api/realtime/socket";
 
 const MAX_AUDIO_BASE64_LENGTH =
   Number(
@@ -145,32 +144,33 @@ const parseBrowserMessage = (
    NORMALIZE AUDIO MIME TYPE
 ========================================================= */
 
-const normalizeAudioMimeType = (
-  mimeType
-) => {
-  const normalized =
-    String(
-      mimeType || ""
-    ).trim();
+const normalizeAudioMimeType =
+  (
+    mimeType
+  ) => {
+    const normalized =
+      String(
+        mimeType || ""
+      ).trim();
 
-  if (!normalized) {
-    return "audio/pcm;rate=16000";
-  }
+    if (!normalized) {
+      return "audio/pcm;rate=16000";
+    }
 
-  if (
-    !normalized
-      .toLowerCase()
-      .startsWith(
-        "audio/pcm"
-      )
-  ) {
-    throw new Error(
-      "Realtime microphone audio must use raw PCM format."
-    );
-  }
+    if (
+      !normalized
+        .toLowerCase()
+        .startsWith(
+          "audio/pcm"
+        )
+    ) {
+      throw new Error(
+        "Realtime microphone audio must use raw PCM format."
+      );
+    }
 
-  return normalized;
-};
+    return normalized;
+  };
 
 /* =========================================================
    UPDATE SESSION STATUS
@@ -190,12 +190,11 @@ const updateSessionStatus =
       return;
     }
 
-    await RealtimeSession
-      .updateOne(
+    try {
+      await RealtimeSession.updateOne(
         {
           _id:
             sessionId,
-
           socketToken,
         },
         {
@@ -204,15 +203,13 @@ const updateSessionStatus =
             ...extra,
           },
         }
-      )
-      .catch(
-        (error) => {
-          console.error(
-            "REALTIME SESSION STATUS UPDATE ERROR:",
-            error
-          );
-        }
       );
+    } catch (error) {
+      console.error(
+        "REALTIME SESSION STATUS UPDATE ERROR:",
+        error
+      );
+    }
   };
 
 /* =========================================================
@@ -243,63 +240,165 @@ const closeGeminiSafely =
    CREATE REALTIME SOCKET SERVER
 ========================================================= */
 
-const createRealtimeSocketServer = (
-  httpServer
-) => {
-  if (!httpServer) {
-    throw new Error(
-      "HTTP server is required to initialise realtime WebSocket."
-    );
-  }
+const createRealtimeSocketServer =
+  (
+    httpServer
+  ) => {
+    if (!httpServer) {
+      throw new Error(
+        "HTTP server is required."
+      );
+    }
 
-  const webSocketServer =
-    new WebSocketServer({
-      noServer: true,
+    const webSocketServer =
+      new WebSocketServer({
+        noServer: true,
+        clientTracking: true,
+        perMessageDeflate: false,
+        maxPayload:
+          MAX_AUDIO_BASE64_LENGTH +
+          100000,
+      });
 
-      clientTracking:
-        true,
 
-      perMessageDeflate:
-        false,
+         
 
-      maxPayload:
-        MAX_AUDIO_BASE64_LENGTH +
-        100_000,
-    });
+    /* =====================================================
+       HTTP UPGRADE HANDLER
+    ===================================================== */
 
-  /* =======================================================
-     HTTP UPGRADE
-  ======================================================= */
+    httpServer.on(
+      "upgrade",
+      async (
+        request,
+        networkSocket,
+        head
+      ) => {
+        try {
+          const host =
+            request.headers.host ||
+            "localhost";
 
-  httpServer.on(
-    "upgrade",
-    (
-      request,
-      networkSocket,
-      head
-    ) => {
-      try {
-        const host =
-          request.headers.host ||
-          "localhost";
+          const requestUrl =
+            new URL(
+              request.url,
+              `http://${host}`
+            );
 
-        const requestUrl =
-          new URL(
-            request.url,
-            `http://${host}`
-          );
+          if (
+            requestUrl.pathname !==
+            REALTIME_PATH
+          ) {
+            networkSocket.write(
+              "HTTP/1.1 404 Not Found\r\n\r\n"
+            );
 
-        if (
-          requestUrl.pathname !==
-          REALTIME_PATH
-        ) {
-          networkSocket.destroy();
+            networkSocket.destroy();
 
-          return;
-        }
+            return;
+          }
 
-        webSocketServer
-          .handleUpgrade(
+          const sessionId =
+            requestUrl.searchParams.get(
+              "sessionId"
+            );
+
+          const socketToken =
+            requestUrl.searchParams.get(
+              "socketToken"
+            ) ||
+            requestUrl.searchParams.get(
+              "token"
+            );
+
+          if (
+            !sessionId ||
+            !socketToken
+          ) {
+            networkSocket.write(
+              "HTTP/1.1 401 Unauthorized\r\n" +
+              "Connection: close\r\n" +
+              "\r\n"
+            );
+
+            networkSocket.destroy();
+
+            return;
+          }
+
+          /*
+           * Validate the session before upgrading.
+           * This prevents invalid socket requests
+           * from becoming full WebSocket connections.
+           */
+
+          const session =
+            await RealtimeSession.findOne({
+              _id: sessionId,
+              socketToken,
+            })
+              .select(
+                "_id userId twinId productId status expiresAt socketToken"
+              )
+              .lean();
+
+          if (!session) {
+            networkSocket.write(
+              "HTTP/1.1 401 Unauthorized\r\n" +
+              "Connection: close\r\n" +
+              "\r\n"
+            );
+
+            networkSocket.destroy();
+
+            return;
+          }
+
+          if (
+            session.expiresAt &&
+            new Date(
+              session.expiresAt
+            ).getTime() <
+              Date.now()
+          ) {
+            networkSocket.write(
+              "HTTP/1.1 401 Unauthorized\r\n" +
+              "Connection: close\r\n" +
+              "\r\n"
+            );
+
+            networkSocket.destroy();
+
+            return;
+          }
+
+          if (
+            [
+              "closed",
+              "ended",
+              "failed",
+            ].includes(
+              String(
+                session.status ||
+                  ""
+              ).toLowerCase()
+            )
+          ) {
+            networkSocket.write(
+              "HTTP/1.1 409 Conflict\r\n" +
+              "Connection: close\r\n" +
+              "\r\n"
+            );
+
+            networkSocket.destroy();
+
+            return;
+          }
+
+          request.realtimeSession =
+            session;
+
+          webSocketServer.handleUpgrade(
             request,
             networkSocket,
             head,
@@ -313,588 +412,697 @@ const createRealtimeSocketServer = (
               );
             }
           );
-      } catch (error) {
-        console.error(
-          "REALTIME UPGRADE ERROR:",
-          error
-        );
-
-        networkSocket.destroy();
-      }
-    }
-  );
-
-  /* =======================================================
-     BROWSER CONNECTION
-  ======================================================= */
-
-  webSocketServer.on(
-    "connection",
-    async (
-      browserSocket,
-      request
-    ) => {
-      let sessionId =
-        null;
-
-      let socketToken =
-        null;
-
-      let geminiSession =
-        null;
-
-      let sessionClosed =
-        false;
-
-      let microphoneActive =
-        false;
-
-      /*
-       * Maintains order of audio:start,
-       * audio chunks and audio:end.
-       */
-      let messageQueue =
-        Promise.resolve();
-
-      try {
-        const host =
-          request.headers.host ||
-          "localhost";
-
-        const requestUrl =
-          new URL(
-            request.url,
-            `http://${host}`
+        } catch (error) {
+          console.error(
+            "REALTIME UPGRADE ERROR:",
+            {
+              message:
+                error?.message,
+              stack:
+                error?.stack,
+            }
           );
 
-        sessionId =
-          requestUrl.searchParams.get(
-            "sessionId"
-          );
-
-        socketToken =
-          requestUrl.searchParams.get(
-            "socketToken"
-          );
-
-        if (!sessionId) {
-          throw new Error(
-            "Realtime session ID is required."
-          );
-        }
-
-        if (!socketToken) {
-          throw new Error(
-            "Realtime socket token is required."
-          );
-        }
-
-        console.log(
-          "REALTIME BROWSER CONNECTING:",
-          {
-            sessionId,
+          try {
+            networkSocket.write(
+              "HTTP/1.1 500 Internal Server Error\r\n" +
+              "Connection: close\r\n" +
+              "\r\n"
+            );
+          } catch {
+            // Ignore network write errors.
           }
-        );
+
+          networkSocket.destroy();
+        }
+      }
+    );
+
+    /* =====================================================
+       BROWSER CONNECTION
+    ===================================================== */
+
+    webSocketServer.on(
+      "connection",
+      async (
+        browserSocket,
+        request
+      ) => {
+        let sessionId =
+          null;
+
+        let socketToken =
+          null;
+
+        let geminiSession =
+          null;
+
+        let sessionClosed =
+          false;
+
+        let microphoneActive =
+          false;
 
         /*
-         * This must validate:
-         *
-         * sessionId
-         * socketToken
-         * expiresAt
-         * authenticated user
-         * selected Twin
-         * selected product
-         *
-         * It also creates Gemini Live.
+         * Ensures realtime events are processed
+         * in the order they are received.
          */
-        const result =
-          await initializeRealtimeSession({
+        let messageQueue =
+          Promise.resolve();
+
+        try {
+          const host =
+            request.headers.host ||
+            "localhost";
+
+          const requestUrl =
+            new URL(
+              request.url,
+              `http://${host}`
+            );
+
+          sessionId =
+            requestUrl.searchParams.get(
+              "sessionId"
+            );
+
+          socketToken =
+            requestUrl.searchParams.get(
+              "socketToken"
+            ) ||
+            requestUrl.searchParams.get(
+              "token"
+            );
+
+          if (!sessionId) {
+            throw new Error(
+              "Realtime session ID is required."
+            );
+          }
+
+          if (!socketToken) {
+            throw new Error(
+              "Realtime socket token is required."
+            );
+          }
+
+          console.log(
+            "REALTIME BROWSER CONNECTED:",
+            {
+              sessionId,
+            }
+          );
+
+          safeSend(
+            browserSocket,
+            {
+              type:
+                "socket:connected",
+
+              event:
+                "socket:connected",
+
+              sessionId,
+
+              timestamp:
+                Date.now(),
+            }
+          );
+
+          /*
+           * This service must validate:
+           *
+           * - session
+           * - socket token
+           * - expiry
+           * - authenticated user
+           * - selected Twin
+           * - selected product
+           *
+           * It must also create
+           * the Gemini Live connection.
+           */
+
+          const result =
+            await initializeRealtimeSession({
+              sessionId,
+              socketToken,
+              websocket:
+                browserSocket,
+            });
+
+          geminiSession =
+            result
+              ?.geminiConnection;
+
+          if (!geminiSession) {
+            throw new Error(
+              "Gemini Live session was not created."
+            );
+          }
+
+          await updateSessionStatus({
             sessionId,
             socketToken,
-            websocket:
-              browserSocket,
+
+            status:
+              "active",
+
+            extra: {
+              connectedAt:
+                new Date(),
+            },
           });
 
-        geminiSession =
-          result
-            ?.geminiConnection;
+          safeSend(
+            browserSocket,
+            {
+              type:
+                "session:ready",
 
-        if (!geminiSession) {
-          throw new Error(
-            "Gemini Live session was not created."
+              event:
+                "session:ready",
+
+              sessionId,
+
+              twinId:
+                result?.twin
+                  ?._id ||
+                result?.session
+                  ?.twinId,
+
+              productId:
+                result?.session
+                  ?.productId ||
+                null,
+
+              language:
+                result?.session
+                  ?.language ||
+                "English",
+
+              productScope:
+                result?.session
+                  ?.productId
+                  ? "selected-product"
+                  : "user-products",
+            }
           );
-        }
 
-        await updateSessionStatus({
-          sessionId,
-          socketToken,
+          console.log(
+            "REALTIME SESSION READY:",
+            {
+              sessionId,
 
-          status:
-            "active",
+              twinId:
+                result?.twin
+                  ?._id ||
+                result?.session
+                  ?.twinId,
 
-          extra: {
-            connectedAt:
-              new Date(),
-          },
-        });
+              productId:
+                result?.session
+                  ?.productId ||
+                null,
+            }
+          );
 
-        safeSend(
-          browserSocket,
-          {
-            type:
-              "session.ready",
 
-            event:
-              "session.ready",
+                    /* =================================================
+             BROWSER MESSAGE HANDLER
+          ================================================= */
 
-            sessionId,
-
-            twinId:
-              result?.twin
-                ?._id ||
-              result?.session
-                ?.twinId,
-
-            productId:
-              result?.session
-                ?.productId,
-
-            language:
-              result?.session
-                ?.language,
-
-            productScope:
-              result?.session
-                ?.productId
-                ? "selected-product"
-                : "user-products",
-          }
-        );
-
-        console.log(
-          "REALTIME SESSION READY:",
-          {
-            sessionId,
-
-            twinId:
-              result?.twin
-                ?._id,
-
-            productId:
-              result?.session
-                ?.productId,
-          }
-        );
-
-        /* =================================================
-           BROWSER MESSAGE
-        ================================================= */
-
-        browserSocket.on(
-          "message",
-          (
-            rawMessage
-          ) => {
-            messageQueue =
-              messageQueue
-                .then(
-                  async () => {
-                    if (
-                      browserSocket
-                        .readyState !==
-                      WebSocket.OPEN
-                    ) {
-                      return;
-                    }
-
-                    const message =
-                      parseBrowserMessage(
-                        rawMessage
-                      );
-
-                    const eventName =
-                      getSocketEvent(
-                        message
-                      );
-
-                    if (!eventName) {
-                      throw new Error(
-                        "Realtime event name is required."
-                      );
-                    }
-
-                    switch (
-                      eventName
-                    ) {
-                      /* ===============================
-                         PING
-                      =============================== */
-
-                      case "ping": {
-                        safeSend(
-                          browserSocket,
-                          {
-                            type:
-                              "pong",
-
-                            event:
-                              "pong",
-
-                            timestamp:
-                              Date.now(),
-                          }
-                        );
-
-                        break;
+          browserSocket.on(
+            "message",
+            (
+              rawMessage
+            ) => {
+              messageQueue =
+                messageQueue
+                  .then(
+                    async () => {
+                      if (
+                        browserSocket
+                          .readyState !==
+                        WebSocket.OPEN
+                      ) {
+                        return;
                       }
 
-                      /* ===============================
-                         TEXT INPUT
-                      =============================== */
+                      const message =
+                        parseBrowserMessage(
+                          rawMessage
+                        );
 
-                      case "text":
-                      case "text:input":
-                      case "user.text": {
-                        const text =
-                          String(
-                            message.text ||
-                              message.message ||
-                              ""
-                          ).trim();
+                      const eventName =
+                        getSocketEvent(
+                          message
+                        );
 
-                        if (!text) {
-                          throw new Error(
-                            "Text input cannot be empty."
+                      if (!eventName) {
+                        throw new Error(
+                          "Realtime event name is required."
+                        );
+                      }
+
+                      switch (
+                        eventName
+                      ) {
+                        /* ===============================
+                           PING
+                        =============================== */
+
+                        case "ping": {
+                          safeSend(
+                            browserSocket,
+                            {
+                              type:
+                                "pong",
+
+                              event:
+                                "pong",
+
+                              timestamp:
+                                Date.now(),
+                            }
                           );
-                        }
 
-                        console.log(
-                          "REALTIME TEXT INPUT:",
-                          {
-                            sessionId,
-
-                            textLength:
-                              text.length,
-                          }
-                        );
-
-                        await sendTextToGeminiLive({
-                          liveSession:
-                            geminiSession,
-
-                          text,
-                        });
-
-                        break;
-                      }
-
-                      /* ===============================
-                         MICROPHONE START
-                      =============================== */
-
-                      case "audio:start": {
-                        if (
-                          microphoneActive
-                        ) {
                           break;
                         }
 
-                        microphoneActive =
-                          true;
+                        /* ===============================
+                           TEXT INPUT
+                        =============================== */
 
-                        console.log(
-                          "MICROPHONE AUDIO START:",
-                          sessionId
-                        );
+                        case "conversation:text":
+                        case "text":
+                        case "text:input":
+                        case "user.text": {
+                          const text =
+                            String(
+                              message.text ||
+                                message.message ||
+                                ""
+                            ).trim();
 
-                        await startGeminiAudioActivity(
-                          geminiSession
-                        );
+                          if (!text) {
+                            throw new Error(
+                              "Text input cannot be empty."
+                            );
+                          }
 
-                        break;
-                      }
+                          if (
+                            text.length >
+                            10_000
+                          ) {
+                            throw new Error(
+                              "Text input is too long."
+                            );
+                          }
 
-                      /* ===============================
-                         PCM AUDIO INPUT
-                      =============================== */
+                          console.log(
+                            "REALTIME TEXT INPUT:",
+                            {
+                              sessionId,
+                              textLength:
+                                text.length,
+                            }
+                          );
 
-                      case "audio:input": {
-                        const audio =
-                          String(
-                            message.audio ||
-                              ""
-                          ).trim();
+                          await sendTextToGeminiLive({
+                            liveSession:
+                              geminiSession,
 
-                        if (!audio) {
+                            text,
+                          });
+
                           break;
                         }
 
-                        if (
-                          audio.length >
-                          MAX_AUDIO_BASE64_LENGTH
-                        ) {
-                          throw new Error(
-                            "Microphone audio chunk is too large."
-                          );
-                        }
+                        /* ===============================
+                           MICROPHONE START
+                        =============================== */
 
-                        const mimeType =
-                          normalizeAudioMimeType(
-                            message.mimeType
-                          );
+                        case "audio:start": {
+                          if (
+                            microphoneActive
+                          ) {
+                            break;
+                          }
 
-                        /*
-                         * Allow the first chunk to
-                         * activate the stream even if
-                         * audio:start was missed.
-                         */
-                        if (
-                          !microphoneActive
-                        ) {
                           microphoneActive =
                             true;
+
+                          console.log(
+                            "MICROPHONE AUDIO START:",
+                            {
+                              sessionId,
+                            }
+                          );
 
                           await startGeminiAudioActivity(
                             geminiSession
                           );
-                        }
 
-                        await sendAudioToGeminiLive({
-                          liveSession:
-                            geminiSession,
-
-                          audio,
-
-                          mimeType,
-                        });
-
-                        break;
-                      }
-
-                      /* ===============================
-                         MICROPHONE END
-                      =============================== */
-
-                      case "audio:end": {
-                        if (
-                          !microphoneActive
-                        ) {
                           break;
                         }
 
-                        microphoneActive =
-                          false;
+                        /* ===============================
+                           PCM AUDIO INPUT
+                        =============================== */
 
-                        console.log(
-                          "MICROPHONE AUDIO END:",
-                          sessionId
-                        );
+                        case "audio:input": {
+                          const audio =
+                            String(
+                              message.audio ||
+                                message.data ||
+                                ""
+                            ).trim();
 
-                        await endGeminiAudioActivity(
-                          geminiSession
-                        );
-
-                        break;
-                      }
-
-                      /* ===============================
-                         INTERRUPT
-                      =============================== */
-
-                      case "conversation:interrupt": {
-                        console.log(
-                          "CONVERSATION INTERRUPT:",
-                          sessionId
-                        );
-
-                        /*
-                         * Gemini automatic VAD handles
-                         * actual model interruption when
-                         * microphone audio arrives.
-                         *
-                         * This event immediately updates
-                         * the browser UI.
-                         */
-                        safeSend(
-                          browserSocket,
-                          {
-                            type:
-                              "conversation.interrupted",
-
-                            event:
-                              "conversation:interrupted",
+                          if (!audio) {
+                            break;
                           }
-                        );
 
-                        break;
-                      }
+                          if (
+                            audio.length >
+                            MAX_AUDIO_BASE64_LENGTH
+                          ) {
+                            throw new Error(
+                              "Microphone audio chunk is too large."
+                            );
+                          }
 
-                      /* ===============================
-                         STOP SESSION
-                      =============================== */
+                          const mimeType =
+                            normalizeAudioMimeType(
+                              message.mimeType ||
+                                message
+                                  .mime_type
+                            );
 
-                      case "session:stop": {
-                        if (
-                          sessionClosed
-                        ) {
+                          /*
+                           * If audio:start was not received,
+                           * start the audio activity automatically.
+                           */
+
+                          if (
+                            !microphoneActive
+                          ) {
+                            microphoneActive =
+                              true;
+
+                            await startGeminiAudioActivity(
+                              geminiSession
+                            );
+                          }
+
+                          await sendAudioToGeminiLive({
+                            liveSession:
+                              geminiSession,
+
+                            audio,
+
+                            mimeType,
+                          });
+
                           break;
                         }
 
-                        sessionClosed =
-                          true;
+                        /* ===============================
+                           MICROPHONE END
+                        =============================== */
 
-                        microphoneActive =
-                          false;
+                        case "audio:end": {
+                          if (
+                            !microphoneActive
+                          ) {
+                            break;
+                          }
 
-                        console.log(
-                          "REALTIME SESSION STOP:",
-                          sessionId
-                        );
+                          microphoneActive =
+                            false;
 
-                        await closeGeminiSafely(
-                          geminiSession
-                        );
+                          console.log(
+                            "MICROPHONE AUDIO END:",
+                            {
+                              sessionId,
+                            }
+                          );
 
-                        geminiSession =
-                          null;
+                          await endGeminiAudioActivity(
+                            geminiSession
+                          );
 
-                        await updateSessionStatus({
-                          sessionId,
-                          socketToken,
+                          break;
+                        }
 
-                          status:
-                            "closed",
+                        /* ===============================
+                           CONVERSATION INTERRUPT
+                        =============================== */
 
-                          extra: {
-                            endedAt:
-                              new Date(),
-                          },
-                        });
+                        case "conversation:interrupt": {
+                          console.log(
+                            "CONVERSATION INTERRUPT:",
+                            {
+                              sessionId,
+                            }
+                          );
 
-                        if (
-                          browserSocket
-                            .readyState ===
-                          WebSocket.OPEN
-                        ) {
-                          browserSocket.close(
-                            1000,
-                            "Session ended"
+                          /*
+                           * Gemini Live normally handles
+                           * interruption automatically when
+                           * new user audio arrives.
+                           *
+                           * This message immediately updates
+                           * the browser state.
+                           */
+
+                          safeSend(
+                            browserSocket,
+                            {
+                              type:
+                                "conversation:interrupted",
+
+                              event:
+                                "conversation:interrupted",
+
+                              sessionId,
+
+                              timestamp:
+                                Date.now(),
+                            }
+                          );
+
+                          break;
+                        }
+
+                        /* ===============================
+                           STOP SESSION
+                        =============================== */
+
+                        case "session:stop":
+                        case "session:end": {
+                          if (
+                            sessionClosed
+                          ) {
+                            break;
+                          }
+
+                          sessionClosed =
+                            true;
+
+                          microphoneActive =
+                            false;
+
+                          console.log(
+                            "REALTIME SESSION STOP:",
+                            {
+                              sessionId,
+                            }
+                          );
+
+                          if (
+                            geminiSession
+                          ) {
+                            await closeGeminiSafely(
+                              geminiSession
+                            );
+
+                            geminiSession =
+                              null;
+                          }
+
+                          await updateSessionStatus({
+                            sessionId,
+                            socketToken,
+
+                            status:
+                              "closed",
+
+                            extra: {
+                              endedAt:
+                                new Date(),
+                            },
+                          });
+
+                          safeSend(
+                            browserSocket,
+                            {
+                              type:
+                                "session:closed",
+
+                              event:
+                                "session:closed",
+
+                              sessionId,
+                            }
+                          );
+
+                          if (
+                            browserSocket
+                              .readyState ===
+                            WebSocket.OPEN
+                          ) {
+                            browserSocket.close(
+                              1000,
+                              "Session ended"
+                            );
+                          }
+
+                          break;
+                        }
+
+                        /* ===============================
+                           UNKNOWN EVENT
+                        =============================== */
+
+                        default: {
+                          console.warn(
+                            "UNHANDLED REALTIME EVENT:",
+                            {
+                              sessionId,
+                              eventName,
+                            }
+                          );
+
+                          safeSend(
+                            browserSocket,
+                            {
+                              type:
+                                "event:unsupported",
+
+                              event:
+                                "event:unsupported",
+
+                              receivedEvent:
+                                eventName,
+
+                              message:
+                                `Unsupported realtime event: ${eventName}`,
+                            }
                           );
                         }
-
-                        break;
-                      }
-
-                      default: {
-                        console.warn(
-                          "UNHANDLED REALTIME EVENT:",
-                          {
-                            sessionId,
-                            eventName,
-                          }
-                        );
-
-                        safeSend(
-                          browserSocket,
-                          {
-                            type:
-                              "event.unsupported",
-
-                            event:
-                              "event.unsupported",
-
-                            receivedEvent:
-                              eventName,
-                          }
-                        );
                       }
                     }
-                  }
-                )
-                .catch(
-                  (error) => {
-                    console.error(
-                      "REALTIME MESSAGE ERROR:",
-                      {
-                        sessionId,
+                  )
+                  .catch(
+                    (
+                      error
+                    ) => {
+                      console.error(
+                        "REALTIME MESSAGE ERROR:",
+                        {
+                          sessionId,
 
-                        message:
-                          error?.message,
+                          message:
+                            error
+                              ?.message,
 
-                        stack:
-                          error?.stack,
-                      }
-                    );
+                          stack:
+                            error
+                              ?.stack,
+                        }
+                      );
 
-                    safeSend(
-                      browserSocket,
-                      {
-                        type:
-                          "session.error",
+                      safeSend(
+                        browserSocket,
+                        {
+                          type:
+                            "session:error",
 
-                        event:
-                          "session:error",
+                          event:
+                            "session:error",
 
-                        message:
-                          error?.message ||
-                          "Unable to process realtime input.",
-                      }
-                    );
-                  }
-                );
-          }
-        );
+                          message:
+                            error
+                              ?.message ||
+                            "Unable to process realtime input.",
 
-        /* =================================================
-           BROWSER CLOSE
-        ================================================= */
-
-        browserSocket.on(
-          "close",
-          async (
-            code,
-            reason
-          ) => {
-            const reasonText =
-              reason?.toString() ||
-              "";
-
-            console.log(
-              "BROWSER SOCKET CLOSED:",
-              {
-                sessionId,
-                code,
-                reason:
-                  reasonText,
-              }
-            );
-
-            microphoneActive =
-              false;
-
-            /*
-             * Wait for currently queued
-             * audio operation to settle.
-             */
-            try {
-              await messageQueue;
-            } catch {
-              // Queue errors were already reported.
+                          sessionId,
+                        }
+                      );
+                    }
+                  );
             }
+          );
 
-            if (
-              !sessionClosed
-            ) {
+
+                    /* =================================================
+             BROWSER CLOSE
+          ================================================= */
+
+          browserSocket.on(
+            "close",
+            async (
+              code,
+              reason
+            ) => {
+              const reasonText =
+                reason
+                  ?.toString() ||
+                "";
+
+              console.log(
+                "BROWSER SOCKET CLOSED:",
+                {
+                  sessionId,
+                  code,
+                  reason:
+                    reasonText,
+                }
+              );
+
+              microphoneActive =
+                false;
+
+              /*
+               * Wait until queued realtime
+               * operations finish.
+               */
+              try {
+                await messageQueue;
+              } catch {
+                // Queue errors were already handled.
+              }
+
+              if (
+                sessionClosed
+              ) {
+                return;
+              }
+
               sessionClosed =
                 true;
 
-              await closeGeminiSafely(
+              if (
                 geminiSession
-              );
+              ) {
+                await closeGeminiSafely(
+                  geminiSession
+                );
 
-              geminiSession =
-                null;
+                geminiSession =
+                  null;
+              }
 
               await updateSessionStatus({
                 sessionId,
@@ -915,121 +1123,158 @@ const createRealtimeSocketServer = (
                 },
               });
             }
+          );
+
+          /* =================================================
+             BROWSER ERROR
+          ================================================= */
+
+          browserSocket.on(
+            "error",
+            (
+              error
+            ) => {
+              console.error(
+                "BROWSER SOCKET ERROR:",
+                {
+                  sessionId,
+
+                  message:
+                    error
+                      ?.message,
+
+                  stack:
+                    error
+                      ?.stack,
+                }
+              );
+            }
+          );
+        } catch (
+          error
+        ) {
+          console.error(
+            "REALTIME CONNECTION ERROR:",
+            {
+              sessionId,
+
+              message:
+                error
+                  ?.message,
+
+              stack:
+                error
+                  ?.stack,
+            }
+          );
+
+          safeSend(
+            browserSocket,
+            {
+              type:
+                "session:error",
+
+              event:
+                "session:error",
+
+              sessionId,
+
+              message:
+                error
+                  ?.message ||
+                "Unable to initialise realtime session.",
+            }
+          );
+
+          if (
+            geminiSession
+          ) {
+            await closeGeminiSafely(
+              geminiSession
+            );
+
+            geminiSession =
+              null;
           }
-        );
 
-        /* =================================================
-           BROWSER ERROR
-        ================================================= */
+          await updateSessionStatus({
+            sessionId,
+            socketToken,
 
-        browserSocket.on(
-          "error",
-          (
-            error
-          ) => {
-            console.error(
-              "BROWSER SOCKET ERROR:",
-              {
-                sessionId,
+            status:
+              "failed",
 
-                message:
-                  error?.message,
-              }
+            extra: {
+              endedAt:
+                new Date(),
+
+              failureReason:
+                error
+                  ?.message ||
+                "Realtime initialization failed.",
+            },
+          });
+
+          if (
+            browserSocket
+              .readyState ===
+              WebSocket.OPEN ||
+            browserSocket
+              .readyState ===
+              WebSocket.CONNECTING
+          ) {
+            browserSocket.close(
+              1008,
+              "Realtime initialization failed"
             );
           }
-        );
-      } catch (error) {
-        console.error(
-          "REALTIME CONNECTION ERROR:",
-          {
-            sessionId,
-
-            message:
-              error?.message,
-
-            stack:
-              error?.stack,
-          }
-        );
-
-        safeSend(
-          browserSocket,
-          {
-            type:
-              "session.error",
-
-            event:
-              "session:error",
-
-            message:
-              error?.message ||
-              "Unable to initialise realtime session.",
-          }
-        );
-
-        await closeGeminiSafely(
-          geminiSession
-        );
-
-        geminiSession =
-          null;
-
-        await updateSessionStatus({
-          sessionId,
-          socketToken,
-
-          status:
-            "failed",
-
-          extra: {
-            endedAt:
-              new Date(),
-
-            failureReason:
-              error?.message ||
-              "Realtime initialization failed.",
-          },
-        });
-
-        if (
-          browserSocket
-            .readyState ===
-            WebSocket.OPEN ||
-          browserSocket
-            .readyState ===
-            WebSocket.CONNECTING
-        ) {
-          browserSocket.close(
-            1008,
-            "Realtime initialization failed"
-          );
         }
       }
-    }
-  );
+    );
 
-  /* =======================================================
-     SERVER ERROR
-  ======================================================= */
+    /* =====================================================
+       WEBSOCKET SERVER ERROR
+    ===================================================== */
 
-  webSocketServer.on(
-    "error",
-    (
-      error
-    ) => {
-      console.error(
-        "REALTIME WEBSOCKET SERVER ERROR:",
+    webSocketServer.on(
+      "error",
+      (
         error
-      );
-    }
-  );
+      ) => {
+        console.error(
+          "REALTIME WEBSOCKET SERVER ERROR:",
+          {
+            message:
+              error
+                ?.message,
 
-  console.log(
-    `Realtime WebSocket initialized: ${REALTIME_PATH}`
-  );
+            stack:
+              error
+                ?.stack,
+          }
+        );
+      }
+    );
 
-  return webSocketServer;
-};
+    /* =====================================================
+       WEBSOCKET SERVER CLOSE
+    ===================================================== */
+
+    webSocketServer.on(
+      "close",
+      () => {
+        console.log(
+          "Realtime WebSocket server closed."
+        );
+      }
+    );
+
+    console.log(
+      `Realtime WebSocket initialized: ${REALTIME_PATH}`
+    );
+
+    return webSocketServer;
+  };
 
 /* =========================================================
    EXPORT

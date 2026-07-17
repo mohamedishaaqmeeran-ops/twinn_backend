@@ -1,10 +1,13 @@
-const express = require("express");
+const express =
+  require("express");
 
-const router = express.Router();
+const router =
+  express.Router();
 
-const realtimeController = require(
-  "./realtime.controller"
-);
+const realtimeController =
+  require(
+    "./realtime.controller"
+  );
 
 const {
   protect,
@@ -13,7 +16,7 @@ const {
 );
 
 /* =========================================================
-   DEBUG CHECKS
+   VALIDATE IMPORTS
 ========================================================= */
 
 if (
@@ -21,12 +24,13 @@ if (
   "function"
 ) {
   throw new Error(
-    "Realtime routes: protect middleware is not a function. Check auth.middleware exports."
+    "Realtime routes: protect middleware is not exported correctly."
   );
 }
 
 if (
-  typeof realtimeController.createSession !==
+  typeof realtimeController
+    .createSession !==
   "function"
 ) {
   throw new Error(
@@ -35,7 +39,8 @@ if (
 }
 
 if (
-  typeof realtimeController.getSession !==
+  typeof realtimeController
+    .getSession !==
   "function"
 ) {
   throw new Error(
@@ -44,7 +49,8 @@ if (
 }
 
 if (
-  typeof realtimeController.closeSession !==
+  typeof realtimeController
+    .closeSession !==
   "function"
 ) {
   throw new Error(
@@ -53,25 +59,43 @@ if (
 }
 
 /* =========================================================
-   ROUTES
+   SESSION ROUTES
 ========================================================= */
 
 router.post(
   "/sessions",
   protect,
-  realtimeController.createSession
+  realtimeController
+    .createSession
 );
 
 router.get(
   "/sessions/:id",
   protect,
-  realtimeController.getSession
+  realtimeController
+    .getSession
 );
 
 router.patch(
   "/sessions/:id/close",
   protect,
-  realtimeController.closeSession
+  realtimeController
+    .closeSession
 );
 
-module.exports = router;
+/*
+ * Compatibility route for the frontend.
+ *
+ * The current frontend calls:
+ * POST /api/realtime/sessions/:id/end
+ */
+
+router.post(
+  "/sessions/:id/end",
+  protect,
+  realtimeController
+    .closeSession
+);
+
+module.exports =
+  router;

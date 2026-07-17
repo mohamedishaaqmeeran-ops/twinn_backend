@@ -35,9 +35,10 @@ const server =
    CREATE WEBSOCKET SERVER
 ========================================================= */
 
-createRealtimeSocketServer(
-  server
-);
+const realtimeSocketServer =
+  createRealtimeSocketServer(
+    server
+  );
 
 /* =========================================================
    START SERVER
@@ -58,17 +59,22 @@ const startServer =
       ) {
         await connectDB
           .connect();
+      } else {
+        throw new Error(
+          "Invalid database connection module."
+        );
       }
 
       server.listen(
         PORT,
+        "0.0.0.0",
         () => {
           console.log(
             `Server running on port ${PORT}`
           );
 
           console.log(
-            `Realtime WebSocket available at /ws/realtime`
+            "Realtime WebSocket available at /api/realtime/socket"
           );
         }
       );
@@ -81,5 +87,72 @@ const startServer =
       process.exit(1);
     }
   };
+
+/* =========================================================
+   GRACEFUL SHUTDOWN
+========================================================= */
+
+const shutdown =
+  (
+    signal
+  ) => {
+    console.log(
+      `${signal} received. Closing server...`
+    );
+
+    realtimeSocketServer
+      ?.clients
+      ?.forEach(
+        (
+          client
+        ) => {
+          try {
+            client.close(
+              1001,
+              "Server shutting down"
+            );
+          } catch {
+            // Ignore close error.
+          }
+        }
+      );
+
+    server.close(
+      () => {
+        console.log(
+          "HTTP server closed."
+        );
+
+        process.exit(0);
+      }
+    );
+
+    setTimeout(
+      () => {
+        console.error(
+          "Forced shutdown."
+        );
+
+        process.exit(1);
+      },
+      10000
+    ).unref();
+  };
+
+process.on(
+  "SIGTERM",
+  () =>
+    shutdown(
+      "SIGTERM"
+    )
+);
+
+process.on(
+  "SIGINT",
+  () =>
+    shutdown(
+      "SIGINT"
+    )
+);
 
 startServer();

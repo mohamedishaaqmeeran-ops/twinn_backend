@@ -24,9 +24,9 @@ exports.updateTwin = async (
 ) => {
   try {
     const twin =
-      await twinService.updateTwin({
+      await service.updateTwin({
         userId:
-          getUserId(req),
+          userId(req),
 
         twinId:
           req.params.id,
@@ -44,7 +44,7 @@ exports.updateTwin = async (
       twin,
     });
   } catch (error) {
-    return sendError(
+    return fail(
       res,
       error,
       "Unable to update AI Twin."

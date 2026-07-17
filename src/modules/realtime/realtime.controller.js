@@ -1,344 +1,464 @@
-const crypto = require("crypto");
+const crypto =
+  require("crypto");
 
-const RealtimeSession = require(
-  "../../models/RealtimeSession"
-);
+const RealtimeSession =
+  require(
+    "../../models/RealtimeSession"
+  );
 
-const Twin = require(
-  "../../models/Twin"
-);
+const Twin =
+  require(
+    "../../models/Twin"
+  );
 
-const Product = require(
-  "../../models/Product"
-);
+const Product =
+  require(
+    "../../models/Product"
+  );
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const getUserId = (
+  req
+) => {
+  return (
+    req.user?._id ||
+    req.user?.id
+  );
+};
+
+const sendError = (
+  res,
+  error,
+  fallbackMessage
+) => {
+  console.error(
+    fallbackMessage,
+    {
+      message:
+        error?.message,
+      stack:
+        error?.stack,
+    }
+  );
+
+  return res
+    .status(
+      error?.statusCode ||
+        500
+    )
+    .json({
+      success: false,
+
+      message:
+        error?.message ||
+        fallbackMessage,
+    });
+};
+
+const createError = (
+  message,
+  statusCode = 500
+) => {
+  const error =
+    new Error(message);
+
+  error.statusCode =
+    statusCode;
+
+  return error;
+};
+
+const getSocketBaseUrl =
+  (
+    req
+  ) => {
+    const configuredUrl =
+      String(
+        process.env
+          .REALTIME_SOCKET_URL ||
+          ""
+      ).trim();
+
+    if (configuredUrl) {
+      return configuredUrl;
+    }
+
+    const forwardedHost =
+      req.headers[
+        "x-forwarded-host"
+      ];
+
+    const host =
+      forwardedHost ||
+      req.headers.host;
+
+    if (!host) {
+      throw createError(
+        "Unable to determine realtime socket host.",
+        500
+      );
+    }
+
+    const forwardedProto =
+      String(
+        req.headers[
+          "x-forwarded-proto"
+        ] ||
+          ""
+      )
+        .split(",")[0]
+        .trim();
+
+    const requestProtocol =
+      forwardedProto ||
+      req.protocol ||
+      "http";
+
+    const socketProtocol =
+      requestProtocol ===
+      "https"
+        ? "wss"
+        : "ws";
+
+    return `${socketProtocol}://${host}/api/realtime/socket`;
+  };
 
 /* =========================================================
    CREATE REALTIME SESSION
 ========================================================= */
 
-exports.createSession = async (
-  req,
-  res
-) => {
-  try {
-    const userId =
-      req.user?._id ||
-      req.user?.id;
+exports.createSession =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const userId =
+        getUserId(req);
 
-    const {
-      twinId,
-      productId,
-      mode = "test",
-      language = "English",
-    } = req.body;
+      if (!userId) {
+        throw createError(
+          "Authentication is required.",
+          401
+        );
+      }
 
-    if (!userId) {
-      return res
-        .status(401)
-        .json({
-          success: false,
-          message:
-            "Authentication is required.",
-        });
-    }
+      const twinId =
+        String(
+          req.body?.twinId ||
+            ""
+        ).trim();
 
-    if (!twinId) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Twin ID is required.",
-        });
-    }
+      const productId =
+        String(
+          req.body?.productId ||
+            ""
+        ).trim();
 
-    if (!productId) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message:
-            "Product ID is required.",
-        });
-    }
+      const productName =
+        String(
+          req.body
+            ?.productName ||
+            ""
+        ).trim();
 
-    /*
-     * Verify that the Twin belongs
-     * to the authenticated user.
-     */
-    const twin =
-      await Twin.findOne({
-        _id: twinId,
-        userId,
-        status: {
-          $ne: "inactive",
-        },
-      });
+      const language =
+        String(
+          req.body
+            ?.language ||
+            "English"
+        ).trim();
 
-    if (!twin) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message:
-            "AI Twin not found.",
-        });
-    }
+      const mode =
+        String(
+          req.body?.mode ||
+            "test"
+        ).trim();
 
-    /*
-     * Verify that the selected product
-     * belongs to the authenticated user.
-     */
-    const product =
-      await Product.findOne({
-        _id: productId,
-        userId,
-        status: {
-          $ne: "inactive",
-        },
-      });
+      if (!twinId) {
+        throw createError(
+          "Twin ID is required.",
+          400
+        );
+      }
 
-    if (!product) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message:
-            "Product not found or access denied.",
-        });
-    }
+      /*
+       * Verify that the selected Twin
+       * belongs to the logged-in user.
+       */
 
-    /*
-     * Generate a temporary secure token
-     * for the WebSocket connection.
-     */
-    const socketToken =
-      crypto
-        .randomBytes(32)
-        .toString("hex");
-
-    /*
-     * Session expires after one hour.
-     */
-    const expiresAt =
-      new Date(
-        Date.now() +
-          60 * 60 * 1000
-      );
-
-    const session =
-      await RealtimeSession.create({
-        userId,
-
-        twinId:
-          twin._id,
-
-        productId:
-          product._id,
-
-        mode,
-
-        language,
-
-        status:
-          "creating",
-
-        socketToken,
-
-        expiresAt,
-      });
-
-    return res
-      .status(201)
-      .json({
-        success: true,
-
-        message:
-          "Realtime session created.",
-
-        session: {
+      const twin =
+        await Twin.findOne({
           _id:
-            session._id,
+            twinId,
 
-          userId:
-            session.userId,
+          userId,
+        });
+
+      if (!twin) {
+        throw createError(
+          "AI Twin was not found.",
+          404
+        );
+      }
+
+      /*
+       * Product can be optional depending
+       * on your workflow.
+       */
+
+      let product =
+        null;
+
+      if (productId) {
+        product =
+          await Product.findOne({
+            _id:
+              productId,
+
+            userId,
+          });
+
+        if (!product) {
+          throw createError(
+            "Selected product was not found.",
+            404
+          );
+        }
+      }
+
+      const socketToken =
+        crypto
+          .randomBytes(32)
+          .toString("hex");
+
+      const expiresAt =
+        new Date(
+          Date.now() +
+            30 *
+              60 *
+              1000
+        );
+
+      const session =
+        await RealtimeSession.create({
+          userId,
 
           twinId:
-            session.twinId,
+            twin._id,
 
           productId:
-            session.productId,
+            product?._id ||
+            null,
 
-          mode:
-            session.mode,
+          productName:
+            product?.name ||
+            productName ||
+            "",
 
-          language:
-            session.language,
+          language,
+
+          mode,
 
           status:
-            session.status,
+            "created",
 
-          socketToken:
-            session.socketToken,
+          socketToken,
 
-          expiresAt:
-            session.expiresAt,
+          expiresAt,
 
           createdAt:
-            session.createdAt,
-        },
-      });
-  } catch (error) {
-    console.error(
-      "CREATE REALTIME SESSION ERROR:",
-      error
-    );
+            new Date(),
+        });
 
-    return res
-      .status(500)
-      .json({
-        success: false,
+      const socketUrl =
+        getSocketBaseUrl(
+          req
+        );
 
-        message:
-          error.message ||
-          "Unable to create realtime session.",
-      });
-  }
-};
+      return res
+        .status(201)
+        .json({
+          success: true,
+
+          message:
+            "Realtime session created successfully.",
+
+          session: {
+            _id:
+              session._id,
+
+            id:
+              session._id,
+
+            userId:
+              session.userId,
+
+            twinId:
+              session.twinId,
+
+            productId:
+              session.productId,
+
+            productName:
+              session.productName,
+
+            language:
+              session.language,
+
+            mode:
+              session.mode,
+
+            status:
+              session.status,
+
+            expiresAt:
+              session.expiresAt,
+          },
+
+          sessionId:
+            session._id,
+
+          socketUrl,
+
+          socketToken,
+        });
+    } catch (error) {
+      return sendError(
+        res,
+        error,
+        "Unable to create realtime session."
+      );
+    }
+  };
 
 /* =========================================================
    GET REALTIME SESSION
 ========================================================= */
 
-exports.getSession = async (
-  req,
-  res
-) => {
-  try {
-    const userId =
-      req.user?._id ||
-      req.user?.id;
+exports.getSession =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const userId =
+        getUserId(req);
 
-    const session =
-      await RealtimeSession.findOne({
-        _id:
-          req.params.id,
+      const session =
+        await RealtimeSession
+          .findOne({
+            _id:
+              req.params.id,
 
-        userId,
-      })
-        .populate(
-          "twinId",
-          "name image appearance voice voiceName"
-        )
-        .populate(
-          "productId",
-          "name description price currency image status"
+            userId,
+          })
+          .select(
+            "-socketToken"
+          )
+          .lean();
+
+      if (!session) {
+        throw createError(
+          "Realtime session was not found.",
+          404
         );
+      }
 
-    if (!session) {
-      return res
-        .status(404)
-        .json({
-          success: false,
+      return res.json({
+        success: true,
 
-          message:
-            "Realtime session not found.",
-        });
-    }
-
-    return res.json({
-      success: true,
-      session,
-    });
-  } catch (error) {
-    console.error(
-      "GET REALTIME SESSION ERROR:",
-      error
-    );
-
-    return res
-      .status(500)
-      .json({
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to load realtime session.",
+        session,
       });
-  }
-};
+    } catch (error) {
+      return sendError(
+        res,
+        error,
+        "Unable to load realtime session."
+      );
+    }
+  };
 
 /* =========================================================
    CLOSE REALTIME SESSION
 ========================================================= */
 
-exports.closeSession = async (
-  req,
-  res
-) => {
-  try {
-    const userId =
-      req.user?._id ||
-      req.user?.id;
+exports.closeSession =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const userId =
+        getUserId(req);
 
-    const session =
-      await RealtimeSession
-        .findOneAndUpdate(
-          {
+      const session =
+        await RealtimeSession
+          .findOne({
             _id:
               req.params.id,
 
             userId,
-          },
+          });
 
-          {
-            $set: {
-              status:
-                "closed",
-
-              endedAt:
-                new Date(),
-            },
-          },
-
-          {
-            new: true,
-          }
+      if (!session) {
+        throw createError(
+          "Realtime session was not found.",
+          404
         );
+      }
 
-    if (!session) {
-      return res
-        .status(404)
-        .json({
-          success: false,
+      /*
+       * Keep this route idempotent.
+       * Calling it multiple times should
+       * not cause an error.
+       */
 
-          message:
-            "Realtime session not found.",
-        });
-    }
+      if (
+        ![
+          "closed",
+          "ended",
+        ].includes(
+          String(
+            session.status ||
+              ""
+          ).toLowerCase()
+        )
+      ) {
+        session.status =
+          "closed";
 
-    return res.json({
-      success: true,
+        session.endedAt =
+          new Date();
 
-      message:
-        "Realtime session closed.",
+        await session.save();
+      }
 
-      session,
-    });
-  } catch (error) {
-    console.error(
-      "CLOSE REALTIME SESSION ERROR:",
-      error
-    );
-
-    return res
-      .status(500)
-      .json({
-        success: false,
+      return res.json({
+        success: true,
 
         message:
-          error.message ||
-          "Unable to close realtime session.",
+          "Realtime session closed successfully.",
+
+        session: {
+          _id:
+            session._id,
+
+          status:
+            session.status,
+
+          endedAt:
+            session.endedAt,
+        },
       });
-  }
-};
+    } catch (error) {
+      return sendError(
+        res,
+        error,
+        "Unable to close realtime session."
+      );
+    }
+  };
