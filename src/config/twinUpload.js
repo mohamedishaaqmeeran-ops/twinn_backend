@@ -1,17 +1,10 @@
 const multer = require("multer");
 
-const maxFileSize =
-  Number(process.env.MAX_KNOWLEDGE_FILE_SIZE_MB || 20) *
-  1024 *
-  1024;
-
-const allowedMimeTypes = new Set([
-  // Images
+const allowedMimeTypes = [
   "image/jpeg",
   "image/png",
   "image/webp",
 
-  // Audio
   "audio/mpeg",
   "audio/mp3",
   "audio/wav",
@@ -20,29 +13,45 @@ const allowedMimeTypes = new Set([
   "audio/ogg",
   "audio/webm",
 
-  // Documents
+  "application/pdf",
   "text/plain",
   "text/csv",
-  "application/pdf",
-  "application/msword",
+
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
+];
 
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage:
+    multer.memoryStorage(),
 
   limits: {
-    fileSize: maxFileSize,
+    fileSize:
+      25 * 1024 * 1024,
   },
 
-  fileFilter: (req, file, callback) => {
-    if (!allowedMimeTypes.has(file.mimetype)) {
-      return callback(
-        new Error(`Unsupported file type: ${file.mimetype}`)
+  fileFilter(
+    req,
+    file,
+    callback
+  ) {
+    if (
+      !allowedMimeTypes.includes(
+        file.mimetype
+      )
+    ) {
+      const error = new Error(
+        `Unsupported file type: ${file.mimetype}`
       );
+
+      error.statusCode = 400;
+
+      return callback(error);
     }
 
-    callback(null, true);
+    return callback(
+      null,
+      true
+    );
   },
 });
 

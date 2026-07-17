@@ -1,96 +1,11 @@
-const cloudinary = require("../../config/cloudinary");
-
-const uploadBuffer = ({
-  buffer,
-  folder,
-  resourceType = "auto",
-  publicId,
-}) => {
-  return new Promise((resolve, reject) => {
-    const uploadStream =
-      cloudinary.uploader.upload_stream(
-        {
-          folder,
-          resource_type: resourceType,
-
-          ...(publicId
-            ? {
-                public_id: publicId,
-              }
-            : {}),
-        },
-
-        (error, result) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve({
-            url: result.secure_url,
-            publicId: result.public_id,
-            resourceType: result.resource_type,
-            format: result.format,
-            bytes: result.bytes,
-          });
-        }
-      );
-
-    uploadStream.end(buffer);
+const cloudinary = require("cloudinary").v2;
+const streamifier = require("streamifier");
+cloudinary.config({ cloud_name: process.env.CLOUDINARY_CLOUD_NAME, api_key: process.env.CLOUDINARY_API_KEY, api_secret: process.env.CLOUDINARY_API_SECRET });
+exports.uploadBuffer = ({ buffer, folder, fileName, mimeType }) => new Promise((resolve, reject) => {
+  const resource_type = mimeType?.startsWith("image/") ? "image" : mimeType?.startsWith("audio/") ? "video" : "raw";
+  const stream = cloudinary.uploader.upload_stream({ folder, resource_type, public_id: fileName?.replace(/\.[^/.]+$/, "") }, (error, result) => {
+    if (error) return reject(error);
+    resolve({ url: result.secure_url, publicId: result.public_id });
   });
-};
-
-const deleteAsset = async ({
-  publicId,
-  resourceType = "image",
-}) => {
-  if (!publicId) {
-    return;
-  }
-
-  await cloudinary.uploader.destroy(publicId, {
-    resource_type: resourceType,
-    invalidate: true,
-  });
-};
-
-exports.uploadAvatar = async ({
-  userId,
-  twinId,
-  file,
-}) => {
-  return uploadBuffer({
-    buffer: file.buffer,
-    folder: `twinn/twins/${userId}/${twinId}/appearance`,
-    resourceType: "image",
-    publicId: `avatar-${Date.now()}`,
-  });
-};
-
-exports.uploadVoiceSample = async ({
-  userId,
-  twinId,
-  file,
-}) => {
-  return uploadBuffer({
-    buffer: file.buffer,
-    folder: `twinn/twins/${userId}/${twinId}/voice`,
-    resourceType: "video",
-    publicId: `voice-${Date.now()}`,
-  });
-};
-
-exports.uploadKnowledgeFile = async ({
-  userId,
-  twinId,
-  file,
-}) => {
-  return uploadBuffer({
-    buffer: file.buffer,
-    folder: `twinn/twins/${userId}/${twinId}/knowledge`,
-    resourceType: "raw",
-    publicId: `knowledge-${Date.now()}`,
-  });
-};
-
-exports.deleteAsset = deleteAsset;
+  streamifier.createReadStream(buffer).pipe(stream);
+});

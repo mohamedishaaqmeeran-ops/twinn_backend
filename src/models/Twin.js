@@ -1,219 +1,47 @@
 const mongoose = require("mongoose");
 
-const twinSchema = new mongoose.Schema(
-  {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+const appearanceSchema = new mongoose.Schema({
+  avatarUrl: { type: String, default: "" },
+  avatarPublicId: { type: String, default: "" },
+  provider: { type: String, enum: ["custom", "did", "liveavatar", "heygen"], default: "custom" },
+  style: { type: String, default: "Professional" },
+  background: { type: String, default: "Studio" },
+  clothingStyle: { type: String, default: "Professional" },
+  gesture: { type: String, default: "Friendly" },
+}, { _id: false });
 
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 100,
-    },
+const voiceSchema = new mongoose.Schema({
+  voiceType: { type: String, default: "Warm Female" },
+  language: { type: String, default: "English" },
+  speed: { type: Number, default: 1, min: 0.5, max: 2 },
+  pitch: { type: Number, default: 1, min: 0.5, max: 2 },
+  sampleUrl: { type: String, default: "" },
+  samplePublicId: { type: String, default: "" },
+  clonedVoiceId: { type: String, default: "" },
+  provider: { type: String, enum: ["google", "elevenlabs", "azure", "custom"], default: "google" },
+  isCloned: { type: Boolean, default: false },
+}, { _id: false });
 
-    brandName: {
-      type: String,
-      default: "",
-      trim: true,
-      maxlength: 150,
-    },
+const twinSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+  name: { type: String, required: true, trim: true },
+  brandName: { type: String, default: "", trim: true },
+  brandDescription: { type: String, required: true, trim: true },
+  purpose: { type: String, default: "Live-commerce selling and customer support" },
+  industry: { type: String, default: "General" },
+  targetAudience: { type: String, default: "" },
+  personality: { type: String, default: "Friendly" },
+  tone: { type: String, default: "Helpful" },
+  primaryLanguage: { type: String, default: "English" },
+  appearance: { type: appearanceSchema, default: () => ({}) },
+  voice: { type: voiceSchema, default: () => ({}) },
+  productIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
+  currentStep: { type: Number, default: 1 },
+  completedSteps: { type: [Number], default: [] },
+  status: { type: String, enum: ["draft", "training", "active", "failed", "inactive"], default: "draft" },
+  trainingStatus: { type: String, enum: ["not_started", "processing", "completed", "failed"], default: "not_started" },
+  isTrained: { type: Boolean, default: false },
+}, { timestamps: true });
 
-    brandDescription: {
-      type: String,
-      default: "",
-      trim: true,
-      maxlength: 5000,
-    },
-
-    purpose: {
-      type: String,
-      default: "",
-      trim: true,
-      maxlength: 1500,
-    },
-
-    industry: {
-      type: String,
-      default: "General",
-      trim: true,
-    },
-
-    targetAudience: {
-      type: String,
-      default: "",
-      trim: true,
-      maxlength: 1500,
-    },
-
-    personality: {
-      type: String,
-      default: "Friendly",
-      trim: true,
-    },
-
-    tone: {
-      type: String,
-      default: "Helpful",
-      trim: true,
-    },
-
-    primaryLanguage: {
-      type: String,
-      default: "English",
-      trim: true,
-    },
-
-    appearance: {
-      avatarUrl: {
-        type: String,
-        default: "",
-      },
-
-      avatarPublicId: {
-        type: String,
-        default: "",
-      },
-
-      style: {
-        type: String,
-        default: "Professional",
-      },
-
-      background: {
-        type: String,
-        default: "",
-      },
-
-      gender: {
-        type: String,
-        default: "",
-      },
-
-      ageGroup: {
-        type: String,
-        default: "",
-      },
-
-      skinTone: {
-        type: String,
-        default: "",
-      },
-
-      hairStyle: {
-        type: String,
-        default: "",
-      },
-
-      clothingStyle: {
-        type: String,
-        default: "",
-      },
-    },
-
-    image: {
-      type: String,
-      default: "/images/bb.png",
-    },
-
-    voice: {
-      voiceType: {
-        type: String,
-        default: "Warm Female",
-      },
-
-      voiceId: {
-        type: String,
-        default: "",
-      },
-
-      language: {
-        type: String,
-        default: "English",
-      },
-
-      sampleUrl: {
-        type: String,
-        default: "",
-      },
-
-      samplePublicId: {
-        type: String,
-        default: "",
-      },
-
-      speed: {
-        type: Number,
-        default: 1,
-        min: 0.5,
-        max: 2,
-      },
-
-      pitch: {
-        type: Number,
-        default: 1,
-        min: 0.5,
-        max: 2,
-      },
-    },
-
-    voiceName: {
-      type: String,
-      default: "Warm Female",
-    },
-
-    trainingStatus: {
-      type: String,
-      enum: [
-        "not_started",
-        "processing",
-        "completed",
-        "failed",
-      ],
-      default: "not_started",
-    },
-
-    isTrained: {
-      type: Boolean,
-      default: false,
-    },
-
-    knowledgeCount: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
-    currentStep: {
-      type: Number,
-      default: 1,
-      min: 1,
-      max: 6,
-    },
-
-    completedSteps: {
-      type: [Number],
-      default: [],
-    },
-
-    status: {
-      type: String,
-      enum: ["draft", "active", "inactive"],
-      default: "draft",
-    },
-  },
-  {
-    timestamps: true,
-  }
-);
-
-twinSchema.index({
-  userId: 1,
-  createdAt: -1,
-});
-
-module.exports = mongoose.model("Twin", twinSchema);
+twinSchema.index({ userId: 1, status: 1 });
+module.exports = mongoose.models.Twin || mongoose.model("Twin", twinSchema);

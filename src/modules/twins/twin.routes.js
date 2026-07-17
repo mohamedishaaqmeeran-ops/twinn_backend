@@ -1,72 +1,23 @@
 const express = require("express");
-
-const controller =
-  require("./twin.controller");
-
-const {
-  protect,
-} = require(
-  "../../middleware/auth.middleware"
-);
-
-const upload =
-  require("../../config/twinUpload");
-
+const c = require("./twin.controller");
+const { protect } = require("../../middleware/auth.middleware");
+const upload = require("../../config/twinUpload");
 const router = express.Router();
-
 router.use(protect);
-
-router.post(
-  "/basic-info",
-  controller.saveBasicInfo
-);
-
-router.post(
-  "/appearance",
-  upload.single("avatar"),
-  controller.saveAppearance
-);
-
-router.post(
-  "/voice",
-  upload.single("sample"),
-  controller.saveVoice
-);
-
-router.post(
-  "/knowledge",
-  upload.single("document"),
-  controller.saveKnowledge
-);
-
-router.post(
-  "/chat",
-  controller.chatWithTwin
-);
-
-router.get(
-  "/",
-  controller.getTwins
-);
-
-router.get(
-  "/:id/knowledge",
-  controller.getKnowledge
-);
-
-router.get(
-  "/:id/conversations",
-  controller.getConversations
-);
-
-router.get(
-  "/:id",
-  controller.getTwin
-);
-
-router.delete(
-  "/:id",
-  controller.deleteTwin
-);
-
+router.post("/basic-info", c.saveBasicInfo);
+router.post("/appearance", upload.single("avatar"), c.saveAppearance);
+router.post("/voice", upload.single("sample"), c.saveVoice);
+router.post("/knowledge", upload.single("document"), c.saveKnowledge);
+router.post("/:id/products/:productId/train", upload.single("document"), c.trainProduct);
+router.post("/chat", c.chatWithTwin);
+router.post("/text-to-speech", c.textToSpeech);
+router.post("/speech-to-text", upload.single("audio"), c.speechToText);
+router.post("/speech-to-speech", upload.single("audio"), c.speechToSpeech);
+router.post("/talking-avatar", c.createTalkingAvatar);
+router.get("/talking-avatar/:generationId", c.getTalkingAvatarStatus);
+router.get("/", c.getTwins);
+router.get("/:id/knowledge", c.getKnowledge);
+router.get("/:id/conversations", c.getConversations);
+router.get("/:id", c.getTwin);
+router.delete("/:id", c.deleteTwin);
 module.exports = router;

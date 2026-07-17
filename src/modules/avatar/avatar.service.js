@@ -1,391 +1,181 @@
-const mongoose = require("mongoose");
+const AvatarGeneration = require(
+  "../../models/AvatarGeneration"
+);
 
-const Twin = require("../../models/Twin");
-const AvatarSession = require("../../models/AvatarSession");
+const didAvatarService = require(
+  "./didAvatar.service"
+);
 
-const didAvatarService = require("./didAvatar.service");
-
-const validateObjectId = (
-  value,
-  fieldName = "ID"
+const createError = (
+  message,
+  statusCode = 500
 ) => {
-  if (
-    !mongoose.Types.ObjectId.isValid(
-      value
-    )
-  ) {
-    const error = new Error(
-      `Invalid ${fieldName}.`
-    );
+  const error = new Error(message);
 
-    error.statusCode = 400;
+  error.statusCode = statusCode;
 
-    throw error;
-  }
+  return error;
 };
 
-const findOwnedAvatarSession =
-  async ({
-    userId,
-    avatarSessionId,
-  }) => {
-    validateObjectId(
-      avatarSessionId,
-      "avatar session ID"
-    );
-
-    const session =
-      await AvatarSession.findOne({
-        _id: avatarSessionId,
-        userId,
-      });
-
-    if (!session) {
-      const error = new Error(
-        "Avatar session not found."
-      );
-
-      error.statusCode = 404;
-
-      throw error;
-    }
-
-    return session;
-  };
-
 /* =========================================================
-   CREATE STREAMING AVATAR SESSION
+   CREATE RECORDED TALKING AVATAR
 ========================================================= */
 
-exports.createSession =
+exports.createTalkingAvatar =
   async ({
     userId,
-    twinId,
-    realtimeSessionId = null,
+    twin,
+    text,
+    audioUrl,
   }) => {
-    validateObjectId(
-      twinId,
-      "Twin ID"
-    );
-
-    if (
-      realtimeSessionId
-    ) {
-      validateObjectId(
-        realtimeSessionId,
-        "realtime session ID"
+    if (!userId) {
+      throw createError(
+        "User ID is required.",
+        400
       );
     }
 
-    const twin =
-      await Twin.findOne({
-        _id: twinId,
-        userId,
-      });
-
-    if (!twin) {
-      const error = new Error(
-        "AI Twin not found."
+    if (!twin?._id) {
+      throw createError(
+        "AI Twin is required.",
+        400
       );
-
-      error.statusCode = 404;
-
-      throw error;
     }
 
-    const avatarUrl =
-      String(
-        twin.appearance?.avatarUrl ||
-          twin.image ||
-          ""
-      ).trim();
+    const avatarUrl = String(
+      twin.appearance?.avatarUrl ||
+        twin.image ||
+        ""
+    ).trim();
 
     if (!avatarUrl) {
-      const error = new Error(
-        "AI Twin avatar image is missing."
+      throw createError(
+        "AI Twin avatar image is missing.",
+        400
       );
-
-      error.statusCode = 400;
-
-      throw error;
     }
 
-    const avatarSession =
-      await AvatarSession.create({
-        userId,
-        twinId,
-        realtimeSessionId,
-        provider: "did",
-        avatarUrl,
-        status: "connecting",
-      });
-
-    try {
-      const providerResult =
-        await didAvatarService.createStream({
-          avatarUrl,
-        });
-
-      const streamId =
-        providerResult?.id;
-
-      const providerSessionId =
-        providerResult?.session_id;
-
-      const offer =
-        providerResult?.offer;
-
-      const iceServers =
-        providerResult?.ice_servers ||
-        [];
-
-      if (
-        !streamId ||
-        !providerSessionId ||
-        !offer
-      ) {
-        throw new Error(
-          "D-ID did not return valid stream connection details."
-        );
-      }
-
-      avatarSession.providerStreamId =
-        streamId;
-
-      avatarSession.providerSessionId =
-        providerSessionId;
-
-      avatarSession.offer =
-        offer;
-
-      avatarSession.iceServers =
-        iceServers;
-
-      avatarSession.status =
-        "created";
-
-      avatarSession.lastError =
-        "";
-
-      await avatarSession.save();
-
-      return {
-        avatarSessionId:
-          avatarSession._id,
-
-        streamId,
-
-        sessionId:
-          providerSessionId,
-
-        offer,
-
-        iceServers,
-
-        avatarUrl,
-      };
-    } catch (error) {
-      avatarSession.status =
-        "failed";
-
-      avatarSession.lastError =
-        error.message ||
-        "D-ID stream creation failed.";
-
-      await avatarSession.save();
-
-      throw error;
+    if (!String(text || "").trim()) {
+      throw createError(
+        "Avatar script is required.",
+        400
+      );
     }
-  };
-
-/* =========================================================
-   SUBMIT SDP ANSWER
-========================================================= */
-
-exports.submitAnswer =
-  async ({
-    userId,
-    avatarSessionId,
-    answer,
-  }) => {
-    const session =
-      await findOwnedAvatarSession({
-        userId,
-        avatarSessionId,
-      });
 
     if (
-      !answer ||
-      !answer.type ||
-      !answer.sdp
+      !String(audioUrl || "").trim()
     ) {
-      const error = new Error(
-        "A valid WebRTC SDP answer is required."
+      throw createError(
+        "Avatar audio URL is required.",
+        400
       );
-
-      error.statusCode = 400;
-
-      throw error;
     }
 
-    await didAvatarService.submitSdpAnswer({
-      streamId:
-        session.providerStreamId,
+    const providerResult =
+      await didAvatarService.createTalk({
+        imageUrl: avatarUrl,
 
-      sessionId:
-        session.providerSessionId,
+        audioUrl:
+          String(audioUrl).trim(),
+      });
 
-      answer,
+    if (!providerResult?.id) {
+      throw createError(
+        "D-ID did not return a generation ID.",
+        502
+      );
+    }
+
+    const status =
+      providerResult.status ===
+      "done"
+        ? "completed"
+        : providerResult.status ===
+          "error"
+        ? "failed"
+        : "created";
+
+    return AvatarGeneration.create({
+      userId,
+
+      twinId: twin._id,
+
+      provider: "did",
+
+      providerGenerationId:
+        providerResult.id,
+
+      text:
+        String(text).trim(),
+
+      audioUrl:
+        String(audioUrl).trim(),
+
+      videoUrl:
+        providerResult.result_url ||
+        "",
+
+      status,
+
+      error:
+        providerResult.error
+          ?.description ||
+        "",
     });
-
-    session.status =
-      "active";
-
-    session.startedAt =
-      session.startedAt ||
-      new Date();
-
-    session.lastError =
-      "";
-
-    await session.save();
-
-    return session;
   };
 
 /* =========================================================
-   ADD ICE CANDIDATE
+   GET RECORDED TALKING AVATAR STATUS
 ========================================================= */
 
-exports.addIceCandidate =
+exports.getTalkingAvatarStatus =
   async ({
-    userId,
-    avatarSessionId,
-    candidate,
-    sdpMid,
-    sdpMLineIndex,
+    generation,
   }) => {
-    const session =
-      await findOwnedAvatarSession({
-        userId,
-        avatarSessionId,
+    if (
+      !generation
+        ?.providerGenerationId
+    ) {
+      throw createError(
+        "Avatar generation provider ID is missing.",
+        400
+      );
+    }
+
+    const providerResult =
+      await didAvatarService.getTalk({
+        talkId:
+          generation
+            .providerGenerationId,
       });
 
-    await didAvatarService.addIceCandidate({
-      streamId:
-        session.providerStreamId,
+    let status =
+      "processing";
 
-      sessionId:
-        session.providerSessionId,
+    if (
+      providerResult.status ===
+      "done"
+    ) {
+      status = "completed";
+    }
 
-      candidate,
-      sdpMid,
-      sdpMLineIndex,
-    });
+    if (
+      providerResult.status ===
+      "error"
+    ) {
+      status = "failed";
+    }
 
     return {
-      success: true,
+      status,
+
+      videoUrl:
+        providerResult.result_url ||
+        "",
+
+      error:
+        providerResult.error
+          ?.description ||
+        "",
     };
-  };
-
-/* =========================================================
-   MAKE AVATAR SPEAK
-========================================================= */
-
-exports.speak =
-  async ({
-    userId,
-    avatarSessionId,
-    text,
-    language,
-  }) => {
-    const session =
-      await findOwnedAvatarSession({
-        userId,
-        avatarSessionId,
-      });
-
-    if (
-      session.status !==
-      "active"
-    ) {
-      const error = new Error(
-        "Avatar session is not active."
-      );
-
-      error.statusCode = 400;
-
-      throw error;
-    }
-
-    const twin =
-      await Twin.findOne({
-        _id:
-          session.twinId,
-        userId,
-      }).select(
-        "primaryLanguage voice voiceName"
-      );
-
-    const selectedLanguage =
-      String(
-        language ||
-          twin?.primaryLanguage ||
-          twin?.voice?.language ||
-          "English"
-      ).trim();
-
-    return didAvatarService.speakText({
-      streamId:
-        session.providerStreamId,
-
-      sessionId:
-        session.providerSessionId,
-
-      text,
-
-      language:
-        selectedLanguage,
-    });
-  };
-
-/* =========================================================
-   END SESSION
-========================================================= */
-
-exports.endSession =
-  async ({
-    userId,
-    avatarSessionId,
-  }) => {
-    const session =
-      await findOwnedAvatarSession({
-        userId,
-        avatarSessionId,
-      });
-
-    try {
-      await didAvatarService.deleteStream({
-        streamId:
-          session.providerStreamId,
-
-        sessionId:
-          session.providerSessionId,
-      });
-    } catch (error) {
-      console.error(
-        "D-ID STREAM CLOSE ERROR:",
-        error.message
-      );
-    }
-
-    session.status =
-      "ended";
-
-    session.endedAt =
-      new Date();
-
-    await session.save();
-
-    return session;
   };

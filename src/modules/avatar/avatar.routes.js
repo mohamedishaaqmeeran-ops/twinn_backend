@@ -1,6 +1,4 @@
-const express = require(
-  "express"
-);
+const express = require("express");
 
 const avatarController = require(
   "./avatar.controller"
@@ -12,19 +10,12 @@ const {
   "../../middleware/auth.middleware"
 );
 
-const router =
-  express.Router();
+const router = express.Router();
 
-/*
- * Every avatar route requires login.
- */
 router.use(protect);
 
 /* =========================================================
    STREAMING AVATAR ROUTES
-
-   These routes must appear before routes
-   containing dynamic marketplace IDs.
 ========================================================= */
 
 router.post(
@@ -47,6 +38,11 @@ router.post(
   avatarController.speak
 );
 
+router.get(
+  "/sessions/:id",
+  avatarController.getSession
+);
+
 router.delete(
   "/sessions/:id",
   avatarController.endSession
@@ -54,8 +50,6 @@ router.delete(
 
 /* =========================================================
    MARKETPLACE STATIC ROUTES
-
-   Keep static paths before /:avatarId/unlock.
 ========================================================= */
 
 router.get(
@@ -78,9 +72,7 @@ router.get(
 );
 
 /* =========================================================
-   MARKETPLACE DYNAMIC ROUTE
-
-   Keep dynamic route near the bottom.
+   MARKETPLACE DYNAMIC ROUTES
 ========================================================= */
 
 router.post(
