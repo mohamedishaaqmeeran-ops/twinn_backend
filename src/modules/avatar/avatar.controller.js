@@ -1,6 +1,4 @@
-const mongoose = require(
-  "mongoose"
-);
+const mongoose = require("mongoose");
 
 const MarketplaceAvatar = require(
   "../../models/MarketplaceAvatar"
@@ -14,6 +12,10 @@ const CreditTransaction = require(
   "../../models/CreditTransaction"
 );
 
+/*
+ * This service handles D-ID/WebRTC
+ * streaming avatar sessions.
+ */
 const avatarSessionService = require(
   "./avatarSession.service"
 );
@@ -23,28 +25,16 @@ const avatarSessionService = require(
 ========================================================= */
 
 const getUserId = (req) => {
-  const userId =
+  return (
     req.user?._id ||
-    req.user?.id;
-
-  if (!userId) {
-    const error = new Error(
-      "Authenticated user is required."
-    );
-
-    error.statusCode = 401;
-
-    throw error;
-  }
-
-  return userId;
+    req.user?.id
+  );
 };
 
-const isValidObjectId = (
-  id
-) => {
-  return mongoose.Types.ObjectId
-    .isValid(id);
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(
+    id
+  );
 };
 
 const getStatusCode = (
@@ -60,32 +50,18 @@ const getStatusCode = (
   ).toLowerCase();
 
   if (
-    message.includes(
-      "not found"
-    )
+    message.includes("not found")
   ) {
     return 404;
   }
 
   if (
-    message.includes(
-      "invalid"
-    ) ||
-    message.includes(
-      "required"
-    ) ||
-    message.includes(
-      "missing"
-    ) ||
-    message.includes(
-      "not active"
-    ) ||
-    message.includes(
-      "already unlocked"
-    ) ||
-    message.includes(
-      "not enough"
-    )
+    message.includes("invalid") ||
+    message.includes("required") ||
+    message.includes("missing") ||
+    message.includes("not active") ||
+    message.includes("already unlocked") ||
+    message.includes("not enough")
   ) {
     return 400;
   }
@@ -117,7 +93,7 @@ const sendError = (
 };
 
 /* =========================================================
-   GET MARKETPLACE AVATARS
+   MARKETPLACE — GET ALL AVATARS
 ========================================================= */
 
 exports.getAvatars = async (
@@ -152,9 +128,7 @@ exports.getAvatars = async (
     }
 
     const normalizedSearch =
-      String(
-        search || ""
-      ).trim();
+      String(search || "").trim();
 
     if (normalizedSearch) {
       filter.$or = [
@@ -166,6 +140,7 @@ exports.getAvatars = async (
             $options: "i",
           },
         },
+
         {
           description: {
             $regex:
@@ -174,6 +149,7 @@ exports.getAvatars = async (
             $options: "i",
           },
         },
+
         {
           category: {
             $regex:
@@ -191,8 +167,7 @@ exports.getAvatars = async (
     };
 
     if (
-      sort ===
-      "credits-low"
+      sort === "credits-low"
     ) {
       sortQuery = {
         credits: 1,
@@ -201,8 +176,7 @@ exports.getAvatars = async (
     }
 
     if (
-      sort ===
-      "credits-high"
+      sort === "credits-high"
     ) {
       sortQuery = {
         credits: -1,
@@ -210,43 +184,47 @@ exports.getAvatars = async (
       };
     }
 
-    if (sort === "newest") {
+    if (
+      sort === "newest"
+    ) {
       sortQuery = {
         createdAt: -1,
       };
     }
 
-    if (sort === "name") {
+    if (
+      sort === "name"
+    ) {
       sortQuery = {
         name: 1,
       };
     }
 
-    const [avatars, user] =
-      await Promise.all([
-        MarketplaceAvatar.find(
-          filter
-        )
-          .sort(sortQuery)
-          .lean(),
+    const [
+      avatars,
+      user,
+    ] = await Promise.all([
+      MarketplaceAvatar.find(
+        filter
+      )
+        .sort(sortQuery)
+        .lean(),
 
-        User.findById(
-          getUserId(req)
+      User.findById(
+        getUserId(req)
+      )
+        .select(
+          "credits unlockedAvatars"
         )
-          .select(
-            "credits unlockedAvatars"
-          )
-          .lean(),
-      ]);
+        .lean(),
+    ]);
 
     if (!user) {
-      return res
-        .status(404)
-        .json({
-          success: false,
-          message:
-            "User not found.",
-        });
+      return res.status(404).json({
+        success: false,
+        message:
+          "User not found.",
+      });
     }
 
     const unlockedIds =
@@ -259,7 +237,7 @@ exports.getAvatars = async (
         )
       );
 
-    const avatarsWithStatus =
+    const result =
       avatars.map(
         (avatar) => ({
           ...avatar,
@@ -282,11 +260,10 @@ exports.getAvatars = async (
         ),
 
       count:
-        avatarsWithStatus
-          .length,
+        result.length,
 
       avatars:
-        avatarsWithStatus,
+        result,
     });
   } catch (error) {
     return sendError(
@@ -298,7 +275,7 @@ exports.getAvatars = async (
 };
 
 /* =========================================================
-   GET UNLOCKED AVATARS
+   MARKETPLACE — GET UNLOCKED AVATARS
 ========================================================= */
 
 exports.getUnlockedAvatars =
@@ -325,6 +302,7 @@ exports.getUnlockedAvatars =
           .status(404)
           .json({
             success: false,
+
             message:
               "User not found.",
           });
@@ -356,7 +334,7 @@ exports.getUnlockedAvatars =
   };
 
 /* =========================================================
-   UNLOCK AVATAR
+   MARKETPLACE — UNLOCK AVATAR
 ========================================================= */
 
 exports.unlockAvatar =
@@ -377,23 +355,24 @@ exports.unlockAvatar =
           .status(400)
           .json({
             success: false,
+
             message:
               "Invalid avatar ID.",
           });
       }
 
       const avatar =
-        await MarketplaceAvatar
-          .findOne({
-            _id: avatarId,
-            active: true,
-          });
+        await MarketplaceAvatar.findOne({
+          _id: avatarId,
+          active: true,
+        });
 
       if (!avatar) {
         return res
           .status(404)
           .json({
             success: false,
+
             message:
               "Avatar not found.",
           });
@@ -414,6 +393,7 @@ exports.unlockAvatar =
           .status(404)
           .json({
             success: false,
+
             message:
               "User not found.",
           });
@@ -421,8 +401,7 @@ exports.unlockAvatar =
 
       const alreadyUnlocked =
         (
-          existingUser
-            .unlockedAvatars ||
+          existingUser.unlockedAvatars ||
           []
         ).some(
           (id) =>
@@ -432,11 +411,14 @@ exports.unlockAvatar =
             )
         );
 
-      if (alreadyUnlocked) {
+      if (
+        alreadyUnlocked
+      ) {
         return res
           .status(400)
           .json({
             success: false,
+
             message:
               "Avatar already unlocked.",
           });
@@ -447,41 +429,48 @@ exports.unlockAvatar =
           avatar.credits || 0
         );
 
+      /*
+       * Atomic update:
+       * - checks sufficient credits
+       * - checks avatar isn't unlocked
+       * - deducts credits
+       * - adds avatar to unlocked list
+       */
       const updatedUser =
-        await User
-          .findOneAndUpdate(
-            {
-              _id: userId,
+        await User.findOneAndUpdate(
+          {
+            _id: userId,
 
-              credits: {
-                $gte:
-                  avatarCredits,
-              },
-
-              unlockedAvatars: {
-                $ne:
-                  avatar._id,
-              },
+            credits: {
+              $gte:
+                avatarCredits,
             },
-            {
-              $inc: {
-                credits:
-                  -avatarCredits,
-              },
 
-              $addToSet: {
-                unlockedAvatars:
-                  avatar._id,
-              },
+            unlockedAvatars: {
+              $ne:
+                avatar._id,
             },
-            {
-              new: true,
-              runValidators: true,
-            }
-          )
-          .select(
-            "credits unlockedAvatars"
-          );
+          },
+
+          {
+            $inc: {
+              credits:
+                -avatarCredits,
+            },
+
+            $addToSet: {
+              unlockedAvatars:
+                avatar._id,
+            },
+          },
+
+          {
+            new: true,
+            runValidators: true,
+          }
+        ).select(
+          "credits unlockedAvatars"
+        );
 
       if (!updatedUser) {
         return res
@@ -495,29 +484,32 @@ exports.unlockAvatar =
       }
 
       try {
-        await CreditTransaction
-          .create({
-            userId,
+        await CreditTransaction.create({
+          userId,
 
-            type:
-              "avatar_unlock",
+          type:
+            "avatar_unlock",
 
-            credits:
-              -avatarCredits,
+          credits:
+            -avatarCredits,
 
-            balanceAfter:
-              updatedUser
-                .credits,
+          balanceAfter:
+            updatedUser.credits,
 
-            avatarId:
-              avatar._id,
+          avatarId:
+            avatar._id,
 
-            description:
-              `Unlocked ${avatar.name}`,
-          });
+          description:
+            `Unlocked ${avatar.name}`,
+        });
       } catch (
         transactionError
       ) {
+        /*
+         * Log transaction history failure.
+         * The avatar unlock itself has already
+         * completed successfully.
+         */
         console.error(
           "CREDIT TRANSACTION ERROR:",
           transactionError
@@ -535,6 +527,7 @@ exports.unlockAvatar =
 
         avatar: {
           ...avatar.toObject(),
+
           unlocked: true,
         },
       });
@@ -548,18 +541,17 @@ exports.unlockAvatar =
   };
 
 /* =========================================================
-   CREDIT HISTORY
+   MARKETPLACE — CREDIT HISTORY
 ========================================================= */
 
 exports.getCreditHistory =
   async (req, res) => {
     try {
       const transactions =
-        await CreditTransaction
-          .find({
-            userId:
-              getUserId(req),
-          })
+        await CreditTransaction.find({
+          userId:
+            getUserId(req),
+        })
           .populate(
             "avatarId",
             "name image description category"
@@ -588,27 +580,39 @@ exports.getCreditHistory =
   };
 
 /* =========================================================
-   CREATE STREAMING SESSION
+   STREAMING AVATAR — CREATE WEBRTC SESSION
 ========================================================= */
 
 exports.createSession =
   async (req, res) => {
     try {
-      const result =
-        await avatarSessionService
-          .createSession({
-            userId:
-              getUserId(req),
+      const {
+        twinId,
+        realtimeSessionId,
+      } = req.body;
 
-            twinId:
-              req.body.twinId ||
-              req.body.twin_id,
+      if (!twinId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-            realtimeSessionId:
-              req.body
-                .realtimeSessionId ||
-              null,
+            message:
+              "Twin ID is required.",
           });
+      }
+
+      const result =
+        await avatarSessionService.createSession({
+          userId:
+            getUserId(req),
+
+          twinId,
+
+          realtimeSessionId:
+            realtimeSessionId ||
+            null,
+        });
 
       return res
         .status(201)
@@ -618,7 +622,7 @@ exports.createSession =
           message:
             "Avatar streaming session created.",
 
-          data: result,
+          ...result,
         });
     } catch (error) {
       return sendError(
@@ -630,24 +634,40 @@ exports.createSession =
   };
 
 /* =========================================================
-   SUBMIT ANSWER
+   STREAMING AVATAR — SUBMIT WEBRTC ANSWER
 ========================================================= */
 
 exports.submitAnswer =
   async (req, res) => {
     try {
-      const session =
-        await avatarSessionService
-          .submitAnswer({
-            userId:
-              getUserId(req),
+      const answer =
+        req.body?.answer;
 
-            avatarSessionId:
-              req.params.id,
+      if (
+        !answer ||
+        !answer.type ||
+        !answer.sdp
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
 
-            answer:
-              req.body.answer,
+            message:
+              "A valid WebRTC SDP answer is required.",
           });
+      }
+
+      const session =
+        await avatarSessionService.submitAnswer({
+          userId:
+            getUserId(req),
+
+          avatarSessionId:
+            req.params.id,
+
+          answer,
+        });
 
       return res.json({
         success: true,
@@ -655,7 +675,7 @@ exports.submitAnswer =
         message:
           "Avatar WebRTC connection established.",
 
-        data: session,
+        session,
       });
     } catch (error) {
       return sendError(
@@ -667,45 +687,42 @@ exports.submitAnswer =
   };
 
 /* =========================================================
-   ADD ICE CANDIDATE
+   STREAMING AVATAR — ADD ICE CANDIDATE
 ========================================================= */
 
 exports.addIceCandidate =
   async (req, res) => {
     try {
+      const {
+        candidate = null,
+        sdpMid = null,
+        sdpMLineIndex = null,
+      } = req.body || {};
+
       const result =
-        await avatarSessionService
-          .addIceCandidate({
-            userId:
-              getUserId(req),
+        await avatarSessionService.addIceCandidate({
+          userId:
+            getUserId(req),
 
-            avatarSessionId:
-              req.params.id,
+          avatarSessionId:
+            req.params.id,
 
-            candidate:
-              req.body
-                ?.candidate ??
-              null,
+          candidate,
 
-            sdpMid:
-              req.body?.sdpMid ??
-              null,
+          sdpMid,
 
-            sdpMLineIndex:
-              req.body
-                ?.sdpMLineIndex ??
-              null,
-          });
+          sdpMLineIndex,
+        });
 
       return res.json({
         success: true,
 
         message:
-          result.completed
+          candidate === null
             ? "ICE gathering completed."
             : "ICE candidate added.",
 
-        data: result,
+        result,
       });
     } catch (error) {
       return sendError(
@@ -717,40 +734,47 @@ exports.addIceCandidate =
   };
 
 /* =========================================================
-   SPEAK
+   STREAMING AVATAR — SPEAK
 ========================================================= */
 
 exports.speak =
   async (req, res) => {
     try {
-      const result =
-        await avatarSessionService
-          .speak({
-            userId:
-              getUserId(req),
+      const text =
+        String(
+          req.body?.text || ""
+        ).trim();
 
-            avatarSessionId:
-              req.params.id,
-
-            text:
-              req.body?.text,
-
-            language:
-              req.body
-                ?.language,
-
-            audioUrl:
-              req.body
-                ?.audioUrl,
+      if (!text) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Avatar speech text is required.",
           });
+      }
+
+      const result =
+        await avatarSessionService.speak({
+          userId:
+            getUserId(req),
+
+          avatarSessionId:
+            req.params.id,
+
+          text,
+
+          language:
+            req.body?.language ||
+            "English",
+        });
 
       return res.json({
         success: true,
-
         message:
           "Avatar speech started.",
-
-        data: result,
+        result,
       });
     } catch (error) {
       return sendError(
@@ -762,7 +786,40 @@ exports.speak =
   };
 
 /* =========================================================
-   GET SESSION
+   STREAMING AVATAR — END SESSION
+========================================================= */
+
+exports.endSession =
+  async (req, res) => {
+    try {
+      const session =
+        await avatarSessionService.endSession({
+          userId:
+            getUserId(req),
+
+          avatarSessionId:
+            req.params.id,
+        });
+
+      return res.json({
+        success: true,
+
+        message:
+          "Avatar session ended successfully.",
+
+        session,
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error,
+        "Unable to end avatar session."
+      );
+    }
+  };
+
+/* =========================================================
+   STREAMING AVATAR — GET SESSION
 ========================================================= */
 
 exports.getSession =
@@ -780,47 +837,13 @@ exports.getSession =
 
       return res.json({
         success: true,
-        data: session,
+        session,
       });
     } catch (error) {
       return sendError(
         res,
         error,
         "Unable to load avatar session."
-      );
-    }
-  };
-
-/* =========================================================
-   END SESSION
-========================================================= */
-
-exports.endSession =
-  async (req, res) => {
-    try {
-      const session =
-        await avatarSessionService
-          .endSession({
-            userId:
-              getUserId(req),
-
-            avatarSessionId:
-              req.params.id,
-          });
-
-      return res.json({
-        success: true,
-
-        message:
-          "Avatar session ended successfully.",
-
-        data: session,
-      });
-    } catch (error) {
-      return sendError(
-        res,
-        error,
-        "Unable to end avatar session."
       );
     }
   };

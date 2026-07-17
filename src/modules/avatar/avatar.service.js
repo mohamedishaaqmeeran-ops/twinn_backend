@@ -42,11 +42,18 @@ exports.createTalkingAvatar =
       );
     }
 
-    const avatarUrl = String(
-      twin.appearance?.avatarUrl ||
-        twin.image ||
-        ""
-    ).trim();
+    const avatarUrl =
+      String(
+        twin.appearance?.avatarUrl ||
+          twin.image ||
+          ""
+      ).trim();
+
+    const cleanText =
+      String(text || "").trim();
+
+    const cleanAudioUrl =
+      String(audioUrl || "").trim();
 
     if (!avatarUrl) {
       throw createError(
@@ -55,16 +62,14 @@ exports.createTalkingAvatar =
       );
     }
 
-    if (!String(text || "").trim()) {
+    if (!cleanText) {
       throw createError(
         "Avatar script is required.",
         400
       );
     }
 
-    if (
-      !String(audioUrl || "").trim()
-    ) {
+    if (!cleanAudioUrl) {
       throw createError(
         "Avatar audio URL is required.",
         400
@@ -74,9 +79,7 @@ exports.createTalkingAvatar =
     const providerResult =
       await didAvatarService.createTalk({
         imageUrl: avatarUrl,
-
-        audioUrl:
-          String(audioUrl).trim(),
+        audioUrl: cleanAudioUrl,
       });
 
     if (!providerResult?.id) {
@@ -86,30 +89,28 @@ exports.createTalkingAvatar =
       );
     }
 
-    const status =
-      providerResult.status ===
-      "done"
-        ? "completed"
-        : providerResult.status ===
-          "error"
-        ? "failed"
-        : "created";
+    let status = "created";
+
+    if (
+      providerResult.status === "done"
+    ) {
+      status = "completed";
+    } else if (
+      providerResult.status === "error"
+    ) {
+      status = "failed";
+    }
 
     return AvatarGeneration.create({
       userId,
-
       twinId: twin._id,
-
       provider: "did",
 
       providerGenerationId:
         providerResult.id,
 
-      text:
-        String(text).trim(),
-
-      audioUrl:
-        String(audioUrl).trim(),
+      text: cleanText,
+      audioUrl: cleanAudioUrl,
 
       videoUrl:
         providerResult.result_url ||
@@ -125,7 +126,7 @@ exports.createTalkingAvatar =
   };
 
 /* =========================================================
-   GET RECORDED TALKING AVATAR STATUS
+   GET RECORDED TALK STATUS
 ========================================================= */
 
 exports.getTalkingAvatarStatus =
@@ -153,15 +154,11 @@ exports.getTalkingAvatarStatus =
       "processing";
 
     if (
-      providerResult.status ===
-      "done"
+      providerResult.status === "done"
     ) {
       status = "completed";
-    }
-
-    if (
-      providerResult.status ===
-      "error"
+    } else if (
+      providerResult.status === "error"
     ) {
       status = "failed";
     }

@@ -1,6 +1,4 @@
-const mongoose = require(
-  "mongoose"
-);
+const mongoose = require("mongoose");
 
 const Twin = require(
   "../../models/Twin"
@@ -13,10 +11,6 @@ const AvatarSession = require(
 const didAvatarService = require(
   "./didAvatar.service"
 );
-
-/* =========================================================
-   HELPERS
-========================================================= */
 
 const createError = (
   message,
@@ -94,7 +88,7 @@ const findOwnedAvatarSession =
   };
 
 /* =========================================================
-   CREATE SESSION
+   CREATE WEBRTC SESSION
 ========================================================= */
 
 exports.createSession =
@@ -139,8 +133,7 @@ exports.createSession =
 
     const avatarUrl =
       String(
-        twin.appearance
-          ?.avatarUrl ||
+        twin.appearance?.avatarUrl ||
           twin.image ||
           ""
       ).trim();
@@ -152,7 +145,11 @@ exports.createSession =
       );
     }
 
-    const existingSessions =
+    /*
+     * A twin should have only one active
+     * D-ID stream for the user.
+     */
+    const previousSessions =
       await AvatarSession.find({
         userId,
         twinId,
@@ -167,24 +164,24 @@ exports.createSession =
       });
 
     for (
-      const oldSession of
-      existingSessions
+      const previousSession of
+      previousSessions
     ) {
       try {
         if (
-          oldSession
+          previousSession
             .providerStreamId &&
-          oldSession
+          previousSession
             .providerSessionId
         ) {
           await didAvatarService
             .deleteStream({
               streamId:
-                oldSession
+                previousSession
                   .providerStreamId,
 
               sessionId:
-                oldSession
+                previousSession
                   .providerSessionId,
             });
         }
@@ -195,13 +192,13 @@ exports.createSession =
         );
       }
 
-      oldSession.status =
+      previousSession.status =
         "ended";
 
-      oldSession.endedAt =
+      previousSession.endedAt =
         new Date();
 
-      await oldSession.save();
+      await previousSession.save();
     }
 
     const avatarSession =
@@ -209,11 +206,8 @@ exports.createSession =
         userId,
         twinId,
         realtimeSessionId,
-
         provider: "did",
-
         avatarUrl,
-
         status: "connecting",
       });
 
@@ -324,8 +318,7 @@ exports.submitAnswer =
 
     if (
       !answer ||
-      answer.type !==
-        "answer" ||
+      answer.type !== "answer" ||
       !String(
         answer.sdp || ""
       ).trim()
@@ -339,31 +332,24 @@ exports.submitAnswer =
     await didAvatarService
       .submitSdpAnswer({
         streamId:
-          session
-            .providerStreamId,
+          session.providerStreamId,
 
         sessionId:
-          session
-            .providerSessionId,
+          session.providerSessionId,
 
         answer: {
-          type:
-            answer.type,
-
-          sdp:
-            answer.sdp,
+          type: answer.type,
+          sdp: answer.sdp,
         },
       });
 
-    session.status =
-      "active";
+    session.status = "active";
 
     session.startedAt =
       session.startedAt ||
       new Date();
 
-    session.lastError =
-      "";
+    session.lastError = "";
 
     await session.save();
 
@@ -395,9 +381,8 @@ exports.addIceCandidate =
       });
 
     /*
-     * Null candidate means ICE gathering
-     * has completed. No request to D-ID
-     * is needed.
+     * The browser emits null when ICE
+     * gathering has completed.
      */
     if (
       candidate === null ||
@@ -409,9 +394,10 @@ exports.addIceCandidate =
       };
     }
 
-    if (
-      !String(candidate).trim()
-    ) {
+    const cleanCandidate =
+      String(candidate).trim();
+
+    if (!cleanCandidate) {
       throw createError(
         "ICE candidate is required.",
         400
@@ -421,14 +407,13 @@ exports.addIceCandidate =
     await didAvatarService
       .addIceCandidate({
         streamId:
-          session
-            .providerStreamId,
+          session.providerStreamId,
 
         sessionId:
-          session
-            .providerSessionId,
+          session.providerSessionId,
 
-        candidate,
+        candidate:
+          cleanCandidate,
 
         sdpMid:
           sdpMid ?? null,
@@ -445,7 +430,7 @@ exports.addIceCandidate =
   };
 
 /* =========================================================
-   SPEAK
+   MAKE AVATAR SPEAK
 ========================================================= */
 
 exports.speak =
@@ -486,9 +471,7 @@ exports.speak =
 
     const twin =
       await Twin.findOne({
-        _id:
-          session.twinId,
-
+        _id: session.twinId,
         userId,
 
         status: {
@@ -539,22 +522,16 @@ exports.speak =
 
             language:
               language ||
-              twin.voice
-                ?.language ||
+              twin.voice?.language ||
               twin.primaryLanguage ||
               "English",
-
-            voice:
-              twin.voice ||
-              null,
           });
     }
 
     session.lastSpokenAt =
       new Date();
 
-    session.lastError =
-      "";
+    session.lastError = "";
 
     await session.save();
 
@@ -600,8 +577,7 @@ exports.endSession =
       });
 
     if (
-      session.status ===
-      "ended"
+      session.status === "ended"
     ) {
       return session;
     }
@@ -632,11 +608,8 @@ exports.endSession =
         error.message;
     }
 
-    session.status =
-      "ended";
-
-    session.endedAt =
-      new Date();
+    session.status = "ended";
+    session.endedAt = new Date();
 
     await session.save();
 

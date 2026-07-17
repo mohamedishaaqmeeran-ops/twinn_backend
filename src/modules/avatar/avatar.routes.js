@@ -1,4 +1,6 @@
-const express = require("express");
+const express = require(
+  "express"
+);
 
 const avatarController = require(
   "./avatar.controller"
@@ -72,7 +74,7 @@ router.get(
 );
 
 /* =========================================================
-   MARKETPLACE DYNAMIC ROUTES
+   MARKETPLACE DYNAMIC ROUTE
 ========================================================= */
 
 router.post(
