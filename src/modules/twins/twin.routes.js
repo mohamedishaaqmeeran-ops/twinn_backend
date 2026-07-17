@@ -21,7 +21,7 @@ router.get("/:id/conversations", c.getConversations);
 router.get("/:id", c.getTwin);
 router.patch(
   "/:id",
-  controller.updateTwin
+  c.updateTwin
 );
 router.delete("/:id", c.deleteTwin);
 module.exports = router;
