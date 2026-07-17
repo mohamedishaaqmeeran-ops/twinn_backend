@@ -55,7 +55,80 @@ const getErrorMessage = (
 /* =========================================================
    CREATE GEMINI LIVE CONNECTION
 ========================================================= */
+const mergeTranscript = (
+  previous,
+  incoming
+) => {
+  const current =
+    String(
+      previous || ""
+    ).trim();
 
+  const next =
+    String(
+      incoming || ""
+    ).trim();
+
+  if (!next) {
+    return current;
+  }
+
+  if (!current) {
+    return next;
+  }
+
+  /*
+   * Gemini may send the full accumulated
+   * transcript instead of only a new chunk.
+   */
+  if (
+    next.startsWith(
+      current
+    )
+  ) {
+    return next;
+  }
+
+  if (
+    current.startsWith(
+      next
+    )
+  ) {
+    return current;
+  }
+
+  /*
+   * Prevent duplicate chunks.
+   */
+  if (
+    current.endsWith(
+      next
+    )
+  ) {
+    return current;
+  }
+
+  /*
+   * Attach punctuation without a space.
+   */
+  if (
+    /^[,.;:!?)]/.test(
+      next
+    )
+  ) {
+    return `${current}${next}`;
+  }
+
+  if (
+    /^['’]/.test(
+      next
+    )
+  ) {
+    return `${current}${next}`;
+  }
+
+  return `${current} ${next}`;
+};
 const createGeminiLiveConnection =
   async ({
     systemPrompt,
@@ -94,7 +167,11 @@ const createGeminiLiveConnection =
         language,
       }
     );
+let userTranscript =
+  "";
 
+let assistantTranscript =
+  "";
     const session =
       await ai.live.connect({
         model:
@@ -181,202 +258,389 @@ const createGeminiLiveConnection =
              GEMINI MESSAGE
           =============================================== */
 
-          onmessage: (
-            message
-          ) => {
-            try {
-              const serverContent =
-                message?.serverContent ||
-                message?.data
-                  ?.serverContent ||
-                null;
+        onmessage: (
+  message
+) => {
+  try {
+    const serverContent =
+      message?.serverContent ||
+      message?.data
+        ?.serverContent ||
+      null;
 
-              if (!serverContent) {
-                return;
-              }
+    if (!serverContent) {
+      return;
+    }
 
-              /*
-               * User microphone transcript.
-               */
-              const inputTranscript =
-                serverContent
-                  ?.inputTranscription
-                  ?.text;
+    /*
+     * Store complete transcripts on the
+     * Gemini Live session callback object.
+     *
+     * Gemini usually sends transcripts as
+     * small partial chunks, so they must be
+     * combined before being sent to frontend.
+     */
+    if (
+      typeof userTranscript !==
+      "string"
+    ) {
+      userTranscript =
+        "";
+    }
 
-              if (
-                inputTranscript
-              ) {
-                safeSend(
-                  websocket,
-                  {
-                    type:
-                      "transcript.user",
+    if (
+      typeof assistantTranscript !==
+      "string"
+    ) {
+      assistantTranscript =
+        "";
+    }
 
-                    event:
-                      "transcript:user",
+    /* ===============================================
+       USER MICROPHONE TRANSCRIPT
+    =============================================== */
 
-                    text:
-                      inputTranscript,
-                  }
-                );
-              }
+    const inputChunk =
+      String(
+        serverContent
+          ?.inputTranscription
+          ?.text ||
+          ""
+      ).trim();
 
-              /*
-               * Model audio transcript.
-               *
-               * This is the main text that
-               * should be sent to D-ID.
-               */
-              const outputTranscript =
-                serverContent
-                  ?.outputTranscription
-                  ?.text;
+    if (inputChunk) {
+      userTranscript =
+        mergeTranscript(
+          userTranscript,
+          inputChunk
+        );
 
-              if (
-                outputTranscript
-              ) {
-                safeSend(
-                  websocket,
-                  {
-                    type:
-                      "transcript.assistant",
+      safeSend(
+        websocket,
+        {
+          type:
+            "transcript.user",
 
-                    event:
-                      "transcript:assistant",
+          event:
+            "transcript:user",
 
-                    text:
-                      outputTranscript,
-                  }
-                );
-              }
+          text:
+            inputChunk,
 
-              /*
-               * Audio response chunks.
-               *
-               * Your frontend may ignore these
-               * because D-ID speaks the output
-               * transcript.
-               */
-              const parts =
-                serverContent
-                  ?.modelTurn
-                  ?.parts ||
-                [];
+          completeText:
+            userTranscript,
 
-              for (
-                const part of parts
-              ) {
-                if (
-                  part?.text
-                ) {
-                  safeSend(
-                    websocket,
-                    {
-                      type:
-                        "transcript.assistant",
+          final:
+            false,
+        }
+      );
+    }
 
-                      event:
-                        "transcript:assistant",
+    /* ===============================================
+       ASSISTANT OUTPUT TRANSCRIPT
+    =============================================== */
 
-                      text:
-                        part.text,
-                    }
-                  );
-                }
+    const outputChunk =
+      String(
+        serverContent
+          ?.outputTranscription
+          ?.text ||
+          ""
+      ).trim();
 
-                const inlineData =
-                  part?.inlineData;
+    if (outputChunk) {
+      assistantTranscript =
+        mergeTranscript(
+          assistantTranscript,
+          outputChunk
+        );
 
-                if (
-                  inlineData?.data
-                ) {
-                  safeSend(
-                    websocket,
-                    {
-                      type:
-                        "audio.output",
+      safeSend(
+        websocket,
+        {
+          type:
+            "transcript.assistant",
 
-                      event:
-                        "audio:output",
+          event:
+            "transcript:assistant",
 
-                      audio:
-                        inlineData.data,
+          text:
+            outputChunk,
 
-                      mimeType:
-                        inlineData
-                          .mimeType ||
-                        "audio/pcm;rate=24000",
+          completeText:
+            assistantTranscript,
 
-                      sampleRate:
-                        24000,
-                    }
-                  );
-                }
-              }
+          final:
+            false,
+        }
+      );
+    }
 
-              /*
-               * Gemini interrupted its answer
-               * because user started speaking.
-               */
-              if (
-                serverContent
-                  ?.interrupted
-              ) {
-                safeSend(
-                  websocket,
-                  {
-                    type:
-                      "conversation.interrupted",
+    /* ===============================================
+       MODEL TURN PARTS
+    =============================================== */
 
-                    event:
-                      "conversation:interrupted",
-                  }
-                );
-              }
+    const parts =
+      serverContent
+        ?.modelTurn
+        ?.parts ||
+      [];
 
-              /*
-               * Complete user + assistant turn.
-               */
-              if (
-                serverContent
-                  ?.turnComplete
-              ) {
-                safeSend(
-                  websocket,
-                  {
-                    type:
-                      "conversation.turn-complete",
+    for (
+      const part of parts
+    ) {
+      /*
+       * Some Gemini responses provide text
+       * through modelTurn.parts instead of
+       * outputTranscription.
+       *
+       * Do not process part.text when the
+       * same event already contains an
+       * output transcript, otherwise the
+       * text can be duplicated.
+       */
+      if (
+        part?.text &&
+        !outputChunk
+      ) {
+        const partText =
+          String(
+            part.text
+          ).trim();
 
-                    event:
-                      "conversation:turn-complete",
-                  }
-                );
-              }
-            } catch (error) {
-              console.error(
-                "GEMINI MESSAGE PROCESSING ERROR:",
-                error
-              );
+        if (partText) {
+          assistantTranscript =
+            mergeTranscript(
+              assistantTranscript,
+              partText
+            );
 
-              safeSend(
-                websocket,
-                {
-                  type:
-                    "session.error",
+          safeSend(
+            websocket,
+            {
+              type:
+                "transcript.assistant",
 
-                  event:
-                    "session:error",
+              event:
+                "transcript:assistant",
 
-                  message:
-                    getErrorMessage(
-                      error,
-                      "Unable to process Gemini response."
-                    ),
-                }
-              );
+              text:
+                partText,
+
+              completeText:
+                assistantTranscript,
+
+              final:
+                false,
             }
-          },
+          );
+        }
+      }
 
+      /* =============================================
+         AUDIO OUTPUT
+      ============================================= */
+
+      const inlineData =
+        part?.inlineData;
+
+      if (
+        inlineData?.data
+      ) {
+        let sampleRate =
+          24000;
+
+        const mimeType =
+          inlineData
+            .mimeType ||
+          "audio/pcm;rate=24000";
+
+        const rateMatch =
+          String(
+            mimeType
+          ).match(
+            /rate=(\d+)/i
+          );
+
+        if (
+          rateMatch?.[1]
+        ) {
+          sampleRate =
+            Number(
+              rateMatch[1]
+            ) ||
+            24000;
+        }
+
+        safeSend(
+          websocket,
+          {
+            type:
+              "audio.output",
+
+            event:
+              "audio:output",
+
+            audio:
+              inlineData.data,
+
+            mimeType,
+
+            sampleRate,
+          }
+        );
+      }
+    }
+
+    /* ===============================================
+       CONVERSATION INTERRUPTED
+    =============================================== */
+
+    if (
+      serverContent
+        ?.interrupted
+    ) {
+      safeSend(
+        websocket,
+        {
+          type:
+            "conversation.interrupted",
+
+          event:
+            "conversation:interrupted",
+        }
+      );
+
+      /*
+       * The unfinished assistant response should
+       * not be carried into the next response.
+       */
+      assistantTranscript =
+        "";
+    }
+
+    /* ===============================================
+       TURN COMPLETE
+    =============================================== */
+
+    if (
+      serverContent
+        ?.turnComplete
+    ) {
+      /*
+       * Send the final complete user transcript.
+       */
+      if (
+        userTranscript
+      ) {
+        safeSend(
+          websocket,
+          {
+            type:
+              "transcript.user",
+
+            event:
+              "transcript:user",
+
+            text:
+              userTranscript,
+
+            completeText:
+              userTranscript,
+
+            final:
+              true,
+
+            isFinal:
+              true,
+          }
+        );
+      }
+
+      /*
+       * Send the final complete assistant transcript.
+       */
+      if (
+        assistantTranscript
+      ) {
+        safeSend(
+          websocket,
+          {
+            type:
+              "transcript.assistant",
+
+            event:
+              "transcript:assistant",
+
+            text:
+              assistantTranscript,
+
+            completeText:
+              assistantTranscript,
+
+            final:
+              true,
+
+            isFinal:
+              true,
+          }
+        );
+      }
+
+      /*
+       * Send turn-complete only after both final
+       * transcript events have been delivered.
+       */
+      safeSend(
+        websocket,
+        {
+          type:
+            "conversation.turn-complete",
+
+          event:
+            "conversation:turn-complete",
+
+          userTranscript,
+
+          assistantTranscript,
+        }
+      );
+
+      /*
+       * Clear buffers for the next conversation turn.
+       */
+      userTranscript =
+        "";
+
+      assistantTranscript =
+        "";
+    }
+  } catch (
+    error
+  ) {
+    console.error(
+      "GEMINI MESSAGE PROCESSING ERROR:",
+      error
+    );
+
+    safeSend(
+      websocket,
+      {
+        type:
+          "session.error",
+
+        event:
+          "session:error",
+
+        message:
+          getErrorMessage(
+            error,
+            "Unable to process Gemini response."
+          ),
+      }
+    );
+  }
+},
           /* ===============================================
              GEMINI ERROR
           =============================================== */
