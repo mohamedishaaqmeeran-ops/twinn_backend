@@ -22,6 +22,7 @@ const processAvatarVideo =
     twinId,
     userId,
     imageUrl,
+    product,
   }) => {
     try {
       const twin =
@@ -65,13 +66,15 @@ const processAvatarVideo =
         );
       }
 
-      const {
-        videoBuffer,
-        operationName,
-      } =
-        await generateAvatarVideo({
-          imageUrl,
-        });
+     const {
+  videoBuffer,
+  operationName,
+  model,
+  prompt,
+} = await generateAvatarVideo({
+  imageUrl,
+  product,
+});
 
       if (
         !videoBuffer ||
@@ -100,44 +103,48 @@ const processAvatarVideo =
       }
 
       const updatedTwin =
-        await Twin.findOneAndUpdate(
-          {
-            _id: twinId,
-            userId,
-          },
-          {
-            $set: {
-              "appearance.avatarVideoUrl":
-                uploaded.url,
+  await Twin.findOneAndUpdate(
+    {
+      _id: twinId,
+      userId,
+    },
+    {
+      $set: {
+        "appearance.avatarVideoUrl":
+          uploaded.url,
 
-              "appearance.avatarVideoPublicId":
-                uploaded.publicId ||
-                "",
+        "appearance.avatarVideoPublicId":
+          uploaded.publicId || "",
 
-              "appearance.avatarVideoStatus":
-                "completed",
+        "appearance.avatarVideoStatus":
+          "completed",
 
-              "appearance.avatarVideoOperation":
-                operationName ||
-                "",
+        "appearance.avatarVideoOperation":
+          operationName || "",
 
-              "appearance.avatarVideoGeneratedAt":
-                new Date(),
+        "appearance.avatarVideoModel":
+          model || "",
 
-              "appearance.avatarVideoError":
-                "",
+        "appearance.avatarVideoPrompt":
+          prompt || "",
 
-              "appearance.provider":
-                "veo",
+        "appearance.avatarVideoGeneratedAt":
+          new Date(),
 
-              avatarVideoUrl:
-                uploaded.url,
-            },
-          },
-          {
-            new: true,
-          }
-        );
+        "appearance.avatarVideoError":
+          "",
+
+        "appearance.provider":
+          "veo",
+
+        avatarVideoUrl:
+          uploaded.url,
+      },
+    },
+    {
+      new: true,
+    }
+  );
 
       console.log(
         "AVATAR VIDEO READY:",

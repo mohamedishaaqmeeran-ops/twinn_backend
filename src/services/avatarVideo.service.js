@@ -1,8 +1,9 @@
+const fs = require("fs");
+const axios = require("axios");
+
 const {
   GoogleGenAI,
 } = require("@google/genai");
-
-const axios = require("axios");
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -23,39 +24,292 @@ const TIMEOUT =
   ) || 10 * 60 * 1000;
 
 /* =========================================================
+   CLEAN TEXT
+========================================================= */
+
+const cleanText = (
+  value,
+  maxLength = 300
+) => {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return "";
+  }
+
+  return String(value)
+    .replace(/\s+/g, " ")
+    .replace(/["“”]/g, "")
+    .trim()
+    .slice(0, maxLength);
+};
+
+/* =========================================================
+   FORMAT PRICE
+========================================================= */
+
+const formatPrice = (
+  product
+) => {
+  const price =
+    product?.price ??
+    product?.salePrice ??
+    product?.sellingPrice;
+
+  if (
+    price === undefined ||
+    price === null ||
+    price === ""
+  ) {
+    return "";
+  }
+
+  const currency =
+    cleanText(
+      product?.currency ||
+        product?.currencyCode ||
+        "INR",
+      10
+    ).toUpperCase();
+
+  const numericPrice =
+    Number(price);
+
+  const formattedPrice =
+    Number.isFinite(numericPrice)
+      ? numericPrice.toLocaleString(
+          "en-IN"
+        )
+      : cleanText(price, 30);
+
+  if (currency === "INR") {
+    return `${formattedPrice} rupees`;
+  }
+
+  if (currency === "USD") {
+    return `${formattedPrice} dollars`;
+  }
+
+  return `${formattedPrice} ${currency}`;
+};
+
+/* =========================================================
+   NORMALIZE FEATURES
+========================================================= */
+
+const getProductFeatures = (
+  product
+) => {
+  if (
+    Array.isArray(product?.features)
+  ) {
+    return product.features
+      .map((feature) => {
+        if (
+          typeof feature === "string"
+        ) {
+          return cleanText(
+            feature,
+            80
+          );
+        }
+
+        return cleanText(
+          feature?.name ||
+            feature?.title ||
+            feature?.value,
+          80
+        );
+      })
+      .filter(Boolean)
+      .slice(0, 2);
+  }
+
+  if (
+    typeof product?.features ===
+    "string"
+  ) {
+    return product.features
+      .split(/[,|;\n]/)
+      .map((feature) =>
+        cleanText(feature, 80)
+      )
+      .filter(Boolean)
+      .slice(0, 2);
+  }
+
+  return [];
+};
+
+/* =========================================================
+   BUILD PRODUCT SPEECH
+========================================================= */
+
+const buildProductSpeech = ({
+  product,
+}) => {
+  const productName =
+    cleanText(
+      product?.name ||
+        product?.productName ||
+        product?.title ||
+        "this product",
+      80
+    );
+
+  const brand =
+    cleanText(
+      product?.brand ||
+        product?.brandName,
+      60
+    );
+
+  const shortDescription =
+    cleanText(
+      product?.shortDescription ||
+        product?.description,
+      130
+    );
+
+  const features =
+    getProductFeatures(product);
+
+  const price =
+    formatPrice(product);
+
+  const sentences = [];
+
+  sentences.push(
+    `Meet ${productName}.`
+  );
+
+  if (brand) {
+    sentences.push(
+      `It is presented by ${brand}.`
+    );
+  }
+
+  /*
+   * Keep the dialogue short because the generated
+   * video duration is only eight seconds.
+   */
+
+  if (shortDescription) {
+    sentences.push(
+      shortDescription
+    );
+  } else if (features.length > 0) {
+    sentences.push(
+      `It features ${features.join(
+        " and "
+      )}.`
+    );
+  }
+
+  if (price) {
+    sentences.push(
+      `It is available for ${price}.`
+    );
+  }
+
+  return sentences
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/* =========================================================
    DOWNLOAD IMAGE
 ========================================================= */
 
 const downloadImage =
   async (imageUrl) => {
-    const response = await axios.get(
-      imageUrl,
-      {
-        responseType: "arraybuffer",
-        timeout: 30000,
-      }
-    );
+    const response =
+      await axios.get(
+        imageUrl,
+        {
+          responseType:
+            "arraybuffer",
+
+          timeout: 30000,
+
+          maxContentLength:
+            15 * 1024 * 1024,
+
+          headers: {
+            Accept:
+              "image/png,image/jpeg,image/webp",
+          },
+        }
+      );
 
     const contentType =
-      response.headers["content-type"] ||
-      "image/jpeg";
+      response.headers[
+        "content-type"
+      ] || "image/jpeg";
+
+    if (
+      !contentType.startsWith(
+        "image/"
+      )
+    ) {
+      throw new Error(
+        `Avatar URL did not return an image. Received: ${contentType}`
+      );
+    }
+
+    const buffer =
+      Buffer.from(
+        response.data
+      );
+
+    if (!buffer.length) {
+      throw new Error(
+        "Downloaded avatar image is empty."
+      );
+    }
 
     return {
-      imageBytes: Buffer.from(
-        response.data
-      ).toString("base64"),
+      imageBytes:
+        buffer.toString(
+          "base64"
+        ),
 
-      mimeType: contentType,
+      mimeType:
+        contentType
+          .split(";")[0]
+          .trim(),
     };
   };
+
+/* =========================================================
+   WAIT
+========================================================= */
+
+const wait = (
+  milliseconds
+) =>
+  new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      milliseconds
+    );
+  });
 
 /* =========================================================
    GENERATE AVATAR VIDEO
 ========================================================= */
 
 const generateAvatarVideo =
-  async ({ imageUrl }) => {
-    if (!process.env.GEMINI_API_KEY) {
+  async ({
+    imageUrl,
+    product,
+  }) => {
+    if (
+      !process.env
+        .GEMINI_API_KEY
+    ) {
       throw new Error(
         "GEMINI_API_KEY is missing."
       );
@@ -67,66 +321,126 @@ const generateAvatarVideo =
       );
     }
 
+    if (
+      !product ||
+      typeof product !==
+        "object"
+    ) {
+      throw new Error(
+        "Product details are required for avatar video generation."
+      );
+    }
+
+    const productName =
+      cleanText(
+        product?.name ||
+          product?.productName ||
+          product?.title ||
+          "the product",
+        80
+      );
+
+    const productSpeech =
+      buildProductSpeech({
+        product,
+      });
+
+    if (!productSpeech) {
+      throw new Error(
+        "Unable to build product speech from the supplied product."
+      );
+    }
+
     console.log(
-      "GENERATING AVATAR VIDEO:",
+      "STARTING VEO AVATAR VIDEO:",
       {
-        model: VIDEO_MODEL,
-        imageUrl,
+        model:
+          VIDEO_MODEL,
+
+        productName,
+
+        productSpeech,
       }
     );
 
     const {
       imageBytes,
       mimeType,
-    } = await downloadImage(
-      imageUrl
-    );
+    } =
+      await downloadImage(
+        imageUrl
+      );
 
     const prompt = `
-Create a realistic professional AI presenter video using the supplied image as the first frame.
+Create a realistic vertical product presentation video from the supplied presenter image.
 
-Preserve the person's identity, face, hairstyle, clothing and overall appearance.
+Preserve the presenter's identity, facial features, hairstyle, skin tone, clothing and overall appearance.
 
-The presenter should:
-- look directly at the camera
-- smile naturally
-- blink naturally
-- make subtle head movements
-- use gentle professional body movement
-- remain centered in the frame
+The presenter looks directly at the camera and clearly says this exact dialogue in English:
 
-Do not change the person's face.
-Do not add text, logos, products or other people.
-Use a clean professional presentation style.
-`;
+${productSpeech}
+
+Presentation requirements:
+- Natural and confident English voice
+- Accurate lip synchronization
+- Clearly pronounce "${productName}"
+- Natural blinking and smiling
+- Subtle head and upper-body movement
+- Small professional hand gestures
+- Keep the presenter centered
+- Clear studio-quality speech
+
+Restrictions:
+- Do not change the presenter's identity
+- Do not add another person
+- Do not add subtitles or visible text
+- Do not add background music
+- Do not add unrelated products
+- Do not invent claims, prices, discounts or features
+- Speak only the supplied dialogue
+`.trim();
 
     let operation =
-      await ai.models.generateVideos({
-        model: VIDEO_MODEL,
+      await ai.models
+        .generateVideos({
+          model:
+            VIDEO_MODEL,
 
-        prompt,
+          prompt,
 
-        image: {
-          imageBytes,
-          mimeType,
-        },
+          image: {
+            imageBytes,
+            mimeType,
+          },
 
-        config: {
-          aspectRatio: "9:16",
-          resolution: "720p",
-          durationSeconds: 8,
-          numberOfVideos: 1,
-        },
-      });
+          config: {
+            aspectRatio:
+              "9:16",
+
+            resolution:
+              "720p",
+
+            durationSeconds:
+              8,
+
+            numberOfVideos:
+              1,
+          },
+        });
 
     const operationName =
-      operation?.name || "";
+      operation?.name ||
+      "";
 
-    const startedAt = Date.now();
+    const startedAt =
+      Date.now();
 
-    while (!operation.done) {
+    while (
+      !operation?.done
+    ) {
       if (
-        Date.now() - startedAt >
+        Date.now() -
+          startedAt >
         TIMEOUT
       ) {
         throw new Error(
@@ -134,12 +448,8 @@ Use a clean professional presentation style.
         );
       }
 
-      await new Promise(
-        (resolve) =>
-          setTimeout(
-            resolve,
-            POLL_INTERVAL
-          )
+      await wait(
+        POLL_INTERVAL
       );
 
       operation =
@@ -147,11 +457,25 @@ Use a clean professional presentation style.
           .getVideosOperation({
             operation,
           });
+
+      console.log(
+        "VEO VIDEO STATUS:",
+        {
+          operationName,
+          done:
+            Boolean(
+              operation?.done
+            ),
+        }
+      );
     }
 
-    if (operation.error) {
+    if (
+      operation?.error
+    ) {
       throw new Error(
-        operation.error.message ||
+        operation.error
+          .message ||
           "Veo video generation failed."
       );
     }
@@ -170,30 +494,50 @@ Use a clean professional presentation style.
     const downloadPath =
       `/tmp/avatar-${Date.now()}.mp4`;
 
-    await ai.files.download({
-      file: generatedVideo,
-      downloadPath,
-    });
+    try {
+      await ai.files.download({
+        file:
+          generatedVideo,
 
-    const fs = require("fs");
+        downloadPath,
+      });
 
-    const videoBuffer =
-      await fs.promises.readFile(
-        downloadPath
-      );
+      const videoBuffer =
+        await fs.promises
+          .readFile(
+            downloadPath
+          );
 
-    await fs.promises.unlink(
-      downloadPath
-    ).catch(() => {});
+      if (
+        !videoBuffer.length
+      ) {
+        throw new Error(
+          "Downloaded Veo video is empty."
+        );
+      }
 
-    return {
-      videoBuffer,
-      operationName,
-      model: VIDEO_MODEL,
-      prompt,
-    };
+      return {
+        videoBuffer,
+
+        operationName,
+
+        model:
+          VIDEO_MODEL,
+
+        prompt,
+
+        productSpeech,
+      };
+    } finally {
+      await fs.promises
+        .unlink(
+          downloadPath
+        )
+        .catch(() => {});
+    }
   };
 
 module.exports = {
   generateAvatarVideo,
+  buildProductSpeech,
 };
