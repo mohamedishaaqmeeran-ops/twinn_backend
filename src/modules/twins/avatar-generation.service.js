@@ -1,18 +1,17 @@
 const Twin =
-  require(
-    "../../models/Twin"
-  );
+  require("../../models/Twin");
+
+const {
+  uploadVideoBuffer,
+} = require(
+  "../../services/cloudinaryVideo.service"
+);
 
 const {
   generateAvatarVideo,
 } = require(
   "../../services/avatarVideo.service"
 );
-
-const storageService =
-  require(
-    "../../services/storage.service"
-  );
 
 /* =========================================================
    PROCESS AVATAR VIDEO
@@ -25,29 +24,46 @@ const processAvatarVideo =
     imageUrl,
   }) => {
     try {
-      await Twin.findOneAndUpdate(
-        {
-          _id:
-            twinId,
-
-          userId,
-        },
-        {
-          $set: {
-            "appearance.avatarVideoStatus":
-              "processing",
-
-            "appearance.avatarVideoError":
-              "",
-
-            "appearance.avatarVideoUrl":
-              "",
-
-            avatarVideoUrl:
-              "",
+      const twin =
+        await Twin.findOneAndUpdate(
+          {
+            _id: twinId,
+            userId,
           },
-        }
-      );
+          {
+            $set: {
+              "appearance.avatarVideoStatus":
+                "processing",
+
+              "appearance.avatarVideoUrl":
+                "",
+
+              "appearance.avatarVideoPublicId":
+                "",
+
+              "appearance.avatarVideoError":
+                "",
+
+              "appearance.avatarVideoOperation":
+                "",
+            },
+          },
+          {
+            new: true,
+          }
+        );
+
+      if (!twin) {
+        throw new Error(
+          "AI Twin not found or access denied."
+        );
+      }
+
+      if (!imageUrl) {
+        throw new Error(
+          "Avatar image URL is required."
+        );
+      }
 
       const {
         videoBuffer,
@@ -57,75 +73,90 @@ const processAvatarVideo =
           imageUrl,
         });
 
-      const uploadedVideo =
-        await storageService
-          .uploadBuffer({
-            buffer:
-              videoBuffer,
+      if (
+        !videoBuffer ||
+        !Buffer.isBuffer(videoBuffer)
+      ) {
+        throw new Error(
+          "Video generation did not return a valid video buffer."
+        );
+      }
 
-            folder:
-              `twins/${userId}/${twinId}/motion`,
+      const uploaded =
+        await uploadVideoBuffer({
+          buffer: videoBuffer,
 
-            extension:
-              "mp4",
+          folder:
+            `twinn/users/${userId}/twins/${twinId}`,
 
-            contentType:
-              "video/mp4",
-          });
+          publicId:
+            `avatar-motion-${Date.now()}`,
+        });
+
+      if (!uploaded?.url) {
+        throw new Error(
+          "Cloudinary did not return a video URL."
+        );
+      }
 
       const updatedTwin =
         await Twin.findOneAndUpdate(
           {
-            _id:
-              twinId,
-
+            _id: twinId,
             userId,
           },
           {
             $set: {
               "appearance.avatarVideoUrl":
-                uploadedVideo.url,
+                uploaded.url,
+
+              "appearance.avatarVideoPublicId":
+                uploaded.publicId ||
+                "",
 
               "appearance.avatarVideoStatus":
                 "completed",
 
+              "appearance.avatarVideoOperation":
+                operationName ||
+                "",
+
+              "appearance.avatarVideoGeneratedAt":
+                new Date(),
+
               "appearance.avatarVideoError":
                 "",
 
-              "appearance.avatarVideoOperation":
-                operationName,
+              "appearance.provider":
+                "veo",
 
               avatarVideoUrl:
-                uploadedVideo.url,
+                uploaded.url,
             },
           },
           {
-            new:
-              true,
+            new: true,
           }
         );
 
       console.log(
-        "AVATAR VIDEO COMPLETED:",
+        "AVATAR VIDEO READY:",
         {
           twinId,
-          videoUrl:
-            uploadedVideo.url,
+          url: uploaded.url,
         }
       );
 
       return updatedTwin;
     } catch (error) {
       console.error(
-        "AVATAR VIDEO GENERATION ERROR:",
+        "AVATAR VIDEO PROCESSING ERROR:",
         error
       );
 
       await Twin.findOneAndUpdate(
         {
-          _id:
-            twinId,
-
+          _id: twinId,
           userId,
         },
         {
@@ -135,7 +166,7 @@ const processAvatarVideo =
 
             "appearance.avatarVideoError":
               error.message ||
-              "Video generation failed.",
+              "Avatar video generation failed.",
           },
         }
       );
