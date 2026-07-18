@@ -138,7 +138,7 @@ exports.updateTwin = async ({
       ).trim();
 
     if (!name) {
-      throw createError(
+      throw error(
         "AI Twin name is required.",
         400
       );
@@ -170,7 +170,7 @@ exports.updateTwin = async ({
       ).trim();
 
     if (!description) {
-      throw createError(
+      throw error(
         "Brand description is required.",
         400
       );

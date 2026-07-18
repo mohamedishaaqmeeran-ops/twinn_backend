@@ -23,5 +23,11 @@ router.patch(
   "/:id",
   c.updateTwin
 );
+router.get(
+  "/:id/avatar-video-status",
+  protect,
+  twinController
+    .getAvatarVideoStatus
+);
 router.delete("/:id", c.deleteTwin);
 module.exports = router;
