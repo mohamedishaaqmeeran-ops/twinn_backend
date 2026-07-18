@@ -2,243 +2,198 @@ const {
   GoogleGenAI,
 } = require("@google/genai");
 
-const ai =
-  new GoogleGenAI({
-    apiKey:
-      process.env
-        .GEMINI_API_KEY,
-  });
+const axios = require("axios");
 
-const VEO_MODEL =
-  process.env
-    .VEO_VIDEO_MODEL ||
-  "veo-3.1-generate-001";
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
-/* =========================================================
-   DEFAULT AVATAR MOTION PROMPT
-========================================================= */
+const VIDEO_MODEL =
+  process.env.VEO_VIDEO_MODEL ||
+  "veo-3.1-generate-preview";
 
-const DEFAULT_AVATAR_PROMPT = `
-Create a realistic professional AI avatar motion video from this image.
+const POLL_INTERVAL =
+  Number(
+    process.env.AVATAR_VIDEO_POLL_MS
+  ) || 10000;
 
-Keep the person's identity, face, hairstyle, skin tone, clothing and background
-consistent with the uploaded image.
-
-The person should:
-- face the camera
-- blink naturally
-- breathe naturally
-- make subtle head movements
-- make small natural shoulder movements
-- maintain a friendly and confident facial expression
-- appear ready to present a product
-- remain centered in the frame
-
-Use smooth realistic movement.
-Use professional studio quality.
-Do not change the person's facial identity.
-Do not add another person.
-Do not add text, logos, captions or products.
-Do not distort the face, hands or body.
-Keep camera movement minimal.
-Create a seamless short looping-style presentation video.
-`;
+const TIMEOUT =
+  Number(
+    process.env.AVATAR_VIDEO_TIMEOUT_MS
+  ) || 10 * 60 * 1000;
 
 /* =========================================================
    DOWNLOAD IMAGE
 ========================================================= */
 
 const downloadImage =
-  async (
-    imageUrl
-  ) => {
-    const response =
-      await fetch(
-        imageUrl
-      );
+  async (imageUrl) => {
+    const response = await axios.get(
+      imageUrl,
+      {
+        responseType: "arraybuffer",
+        timeout: 30000,
+      }
+    );
 
-    if (!response.ok) {
-      throw new Error(
-        `Unable to download avatar image: ${response.status}`
-      );
-    }
-
-    const arrayBuffer =
-      await response
-        .arrayBuffer();
-
-    const buffer =
-      Buffer.from(
-        arrayBuffer
-      );
-
-    const mimeType =
-      response.headers.get(
-        "content-type"
-      ) ||
+    const contentType =
+      response.headers["content-type"] ||
       "image/jpeg";
 
     return {
-      buffer,
-      mimeType,
+      imageBytes: Buffer.from(
+        response.data
+      ).toString("base64"),
+
+      mimeType: contentType,
     };
   };
 
 /* =========================================================
-   GENERATE VIDEO
+   GENERATE AVATAR VIDEO
 ========================================================= */
 
 const generateAvatarVideo =
-  async ({
-    imageUrl,
-    prompt =
-      DEFAULT_AVATAR_PROMPT,
-  }) => {
+  async ({ imageUrl }) => {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error(
+        "GEMINI_API_KEY is missing."
+      );
+    }
+
     if (!imageUrl) {
       throw new Error(
         "Avatar image URL is required."
       );
     }
 
+    console.log(
+      "GENERATING AVATAR VIDEO:",
+      {
+        model: VIDEO_MODEL,
+        imageUrl,
+      }
+    );
+
     const {
-      buffer,
+      imageBytes,
       mimeType,
-    } =
-      await downloadImage(
-        imageUrl
-      );
+    } = await downloadImage(
+      imageUrl
+    );
+
+    const prompt = `
+Create a realistic professional AI presenter video using the supplied image as the first frame.
+
+Preserve the person's identity, face, hairstyle, clothing and overall appearance.
+
+The presenter should:
+- look directly at the camera
+- smile naturally
+- blink naturally
+- make subtle head movements
+- use gentle professional body movement
+- remain centered in the frame
+
+Do not change the person's face.
+Do not add text, logos, products or other people.
+Use a clean professional presentation style.
+`;
 
     let operation =
-      await ai.models
-        .generateVideos({
-          model:
-            VEO_MODEL,
+      await ai.models.generateVideos({
+        model: VIDEO_MODEL,
 
-          prompt,
+        prompt,
 
-          image: {
-            imageBytes:
-              buffer.toString(
-                "base64"
-              ),
+        image: {
+          imageBytes,
+          mimeType,
+        },
 
-            mimeType,
-          },
+        config: {
+          aspectRatio: "9:16",
+          resolution: "720p",
+          durationSeconds: 8,
+          numberOfVideos: 1,
+        },
+      });
 
-          config: {
-            aspectRatio:
-              "9:16",
+    const operationName =
+      operation?.name || "";
 
-            durationSeconds:
-              "8",
+    const startedAt = Date.now();
 
-            resolution:
-              "720p",
+    while (!operation.done) {
+      if (
+        Date.now() - startedAt >
+        TIMEOUT
+      ) {
+        throw new Error(
+          "Avatar video generation timed out."
+        );
+      }
 
-            personGeneration:
-              "allow_adult",
-
-            numberOfVideos:
-              1,
-          },
-        });
-
-    while (
-      !operation.done
-    ) {
       await new Promise(
         (resolve) =>
           setTimeout(
             resolve,
-            10000
+            POLL_INTERVAL
           )
       );
 
       operation =
         await ai.operations
-          .get({
+          .getVideosOperation({
             operation,
           });
     }
 
-    if (
-      operation.error
-    ) {
+    if (operation.error) {
       throw new Error(
-        operation.error
-          .message ||
+        operation.error.message ||
           "Veo video generation failed."
       );
     }
 
     const generatedVideo =
-      operation.response
+      operation?.response
         ?.generatedVideos?.[0]
         ?.video;
 
-    if (
-      !generatedVideo
-    ) {
+    if (!generatedVideo) {
       throw new Error(
-        "Veo did not return a generated video."
+        "Veo returned no generated video."
       );
     }
 
-    const downloadedVideo =
-      await ai.files
-        .download({
-          file:
-            generatedVideo,
-        });
+    const downloadPath =
+      `/tmp/avatar-${Date.now()}.mp4`;
 
-    let videoBuffer;
+    await ai.files.download({
+      file: generatedVideo,
+      downloadPath,
+    });
 
-    if (
-      Buffer.isBuffer(
-        downloadedVideo
-      )
-    ) {
-      videoBuffer =
-        downloadedVideo;
-    } else if (
-      downloadedVideo
-        ?.videoBytes
-    ) {
-      videoBuffer =
-        Buffer.from(
-          downloadedVideo
-            .videoBytes,
-          "base64"
-        );
-    } else if (
-      generatedVideo
-        ?.videoBytes
-    ) {
-      videoBuffer =
-        Buffer.from(
-          generatedVideo
-            .videoBytes,
-          "base64"
-        );
-    } else {
-      throw new Error(
-        "Unable to read the generated video data."
+    const fs = require("fs");
+
+    const videoBuffer =
+      await fs.promises.readFile(
+        downloadPath
       );
-    }
+
+    await fs.promises.unlink(
+      downloadPath
+    ).catch(() => {});
 
     return {
       videoBuffer,
-
-      mimeType:
-        "video/mp4",
-
-      operationName:
-        operation.name ||
-        "",
+      operationName,
+      model: VIDEO_MODEL,
+      prompt,
     };
   };
 
 module.exports = {
-  DEFAULT_AVATAR_PROMPT,
   generateAvatarVideo,
 };
