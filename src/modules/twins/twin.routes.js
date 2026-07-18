@@ -26,8 +26,7 @@ router.patch(
 router.get(
   "/:id/avatar-video-status",
   protect,
-  twinController
-    .getAvatarVideoStatus
+    c.getAvatarVideoStatus
 );
 router.delete("/:id", c.deleteTwin);
 module.exports = router;
