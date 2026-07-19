@@ -1,15 +1,32 @@
 const express = require("express");
+
 const router = express.Router();
 
 const controller = require("./twin.controller");
-const upload = require("../../config/twinUpload");
-const { protect } = require("../../middleware/auth.middleware");
+
+const avatarVideoController = require(
+  "../avatarVideo/avatarVideo.controller"
+);
+
+const upload = require(
+  "../../config/twinUpload"
+);
+
+const {
+  protect,
+} = require(
+  "../../middleware/auth.middleware"
+);
+
+/* =========================================================
+   PROTECT ALL TWIN ROUTES
+========================================================= */
 
 router.use(protect);
 
-/* ================================
+/* =========================================================
    CREATE / SETUP
-================================ */
+========================================================= */
 
 router.post(
   "/basic-info",
@@ -34,9 +51,9 @@ router.post(
   controller.saveKnowledge
 );
 
-/* ================================
+/* =========================================================
    GENERAL ACTIONS
-================================ */
+========================================================= */
 
 router.post(
   "/chat",
@@ -70,37 +87,52 @@ router.get(
   controller.getTalkingAvatarStatus
 );
 
-/* ================================
+/* =========================================================
    LIST TWINS
-================================ */
+========================================================= */
 
 router.get(
   "/",
   controller.getTwins
 );
 
-/* ================================
-   AVATAR VIDEO STATIC ROUTES
-================================ */
+/* =========================================================
+   AVATAR VIDEO ROUTES
+========================================================= */
 
 router.post(
   "/:twinId/avatar-video",
-  controller.generateProductAvatarVideo
+  avatarVideoController.generateAvatarVideo
 );
 
 router.get(
   "/:twinId/avatar-video-status",
-  controller.getAvatarVideoStatus
+  avatarVideoController.getAvatarVideoStatus
 );
 
 router.post(
-  "/:id/avatar-video/retry",
-  controller.retryAvatarVideo
+  "/:twinId/avatar-video/retry",
+  avatarVideoController.retryAvatarVideo
 );
 
-/* ================================
+router.get(
+  "/:twinId/avatar-videos",
+  avatarVideoController.getAvatarVideoHistory
+);
+
+router.get(
+  "/:twinId/avatar-videos/:videoId",
+  avatarVideoController.getAvatarVideoById
+);
+
+router.delete(
+  "/:twinId/avatar-videos/:videoId",
+  avatarVideoController.deleteAvatarVideo
+);
+
+/* =========================================================
    PRODUCT TRAINING
-================================ */
+========================================================= */
 
 router.post(
   "/:id/products/:productId/train",
@@ -108,9 +140,9 @@ router.post(
   controller.trainProduct
 );
 
-/* ================================
+/* =========================================================
    CHILD RESOURCE ROUTES
-================================ */
+========================================================= */
 
 router.get(
   "/:id/knowledge",
@@ -122,9 +154,9 @@ router.get(
   controller.getConversations
 );
 
-/* ================================
+/* =========================================================
    DYNAMIC ID ROUTES — KEEP LAST
-================================ */
+========================================================= */
 
 router.get(
   "/:id",
