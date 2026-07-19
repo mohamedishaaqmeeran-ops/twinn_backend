@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const controller = require("./twin.controller");
-const upload = require("../../middleware/upload.middleware");
+const upload = require("../../config/twinUpload");
 const { protect } = require("../../middleware/auth.middleware");
 
 router.use(protect);
