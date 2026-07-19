@@ -28,10 +28,11 @@ router.get(
   protect,
     c.getAvatarVideoStatus
 );
-route
+
 router.post(
   "/:twinId/avatar-video",
   protect,
   c.generateProductAvatarVideo
-);r.delete("/:id", c.deleteTwin);
+);
+router.delete("/:id", c.deleteTwin);
 module.exports = router;

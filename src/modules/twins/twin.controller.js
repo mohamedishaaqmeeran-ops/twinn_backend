@@ -3,7 +3,7 @@ const Twin =
 
 const Product =
   require("../../models/Product");
-  
+
 
 
 const {
@@ -123,31 +123,30 @@ exports.saveBasicInfo =
    SAVE APPEARANCE
 ========================================================= */
 
+/* =========================================================
+   SAVE APPEARANCE
+========================================================= */
+
 exports.saveAppearance =
   async (req, res) => {
     try {
       const currentUserId =
         getUserId(req);
 
-      /*
-       * Upload image and save appearance.
-       * This is already implemented
-       * inside twin.service.js
-       */
       const twin =
-        await service.saveAppearance(
-          {
-            userId:
-              currentUserId,
-            payload:
-              req.body,
-            file:
-              req.file,
-          }
-        );
+        await service.saveAppearance({
+          userId:
+            currentUserId,
+
+          payload:
+            req.body,
+
+          file:
+            req.file,
+        });
 
       const avatarUrl =
-        twin.appearance
+        twin?.appearance
           ?.avatarUrl || "";
 
       if (!avatarUrl) {
@@ -162,8 +161,13 @@ exports.saveAppearance =
       }
 
       /*
-       * Reset old video
+       * Appearance upload only.
+       *
+       * Do not generate the Veo video here,
+       * because a product has not been
+       * selected yet.
        */
+
       twin.appearance.avatarVideoUrl =
         "";
 
@@ -171,7 +175,7 @@ exports.saveAppearance =
         "";
 
       twin.appearance.avatarVideoStatus =
-        "queued";
+        "idle";
 
       twin.appearance.avatarVideoError =
         "";
@@ -179,40 +183,43 @@ exports.saveAppearance =
       twin.appearance.avatarVideoOperation =
         "";
 
+      twin.appearance.avatarVideoPrompt =
+        "";
+
+      twin.appearance.avatarVideoSpeech =
+        "";
+
+      twin.appearance.avatarVideoProductId =
+        null;
+
+      twin.appearance.avatarVideoProductName =
+        "";
+
       twin.appearance.avatarVideoGeneratedAt =
         null;
 
-      await twin.save();
+      twin.appearance.provider =
+        "veo";
 
-      /*
-       * Generate video in background
-       */
-      setImmediate(() => {
-        AvatarVideo({
-          twinId:
-            twin._id,
-          userId:
-            currentUserId,
-          imageUrl:
-            avatarUrl,
-        }).catch((error) => {
-          console.error(
-            "BACKGROUND AVATAR VIDEO ERROR:",
-            error
-          );
-        });
-      });
+      await twin.save();
 
       return res
         .status(201)
         .json({
           success: true,
+
+          message:
+            "Appearance saved successfully. Select a product to generate the AI Twin video.",
+
           processmessage:
-            "Appearance saved. AI Twin video generation started.",
+            "Appearance saved. Product selection is required before video generation.",
+
           avatarVideoStatus:
-            "queued",
+            "idle",
+
           appearance:
             twin.appearance,
+
           twin,
         });
     } catch (error) {
@@ -335,107 +342,114 @@ exports.getAvatarVideoStatus =
    RETRY AVATAR VIDEO
 ========================================================= */
 
-exports.retryAvatarVideo =
-  async (req, res) => {
-    try {
-      const currentUserId =
-        getUserId(req);
+exports.retryAvatarVideo = async (req, res) => {
+  try {
+    const currentUserId = getUserId(req);
 
-      const twin =
-        await service.getTwin({
-          userId:
-            currentUserId,
-          twinId:
-            req.params.id,
-        });
+    const twin = await service.getTwin({
+      userId: currentUserId,
+      twinId: req.params.id,
+    });
 
-      const avatarUrl =
-        twin.appearance
-          ?.avatarUrl || "";
+    const avatarUrl =
+      twin.appearance?.avatarUrl || "";
 
-      if (!avatarUrl) {
-        const error =
-          new Error(
-            "Upload an avatar image before generating a video."
-          );
-
-        error.statusCode = 400;
-
-        throw error;
-      }
-
-      const status =
-        twin.appearance
-          ?.avatarVideoStatus;
-
-      if (
-        status ===
-          "queued" ||
-        status ===
-          "processing"
-      ) {
-        return res
-          .status(409)
-          .json({
-            success: false,
-            message:
-              "Avatar video generation is already running.",
-            data: {
-              twinId:
-                twin._id,
-              status,
-            },
-          });
-      }
-
-      twin.appearance.avatarVideoStatus =
-        "queued";
-
-      twin.appearance.avatarVideoError =
-        "";
-
-      twin.appearance.avatarVideoOperation =
-        "";
-
-      await twin.save();
-
-      setImmediate(() => {
-        processAvatarVideo({
-          twinId:
-            twin._id,
-          userId:
-            currentUserId,
-          imageUrl:
-            avatarUrl,
-        }).catch((error) => {
-          console.error(
-            "RETRY AVATAR VIDEO ERROR:",
-            error
-          );
-        });
-      });
-
-      return res
-        .status(202)
-        .json({
-          success: true,
-          message:
-            "Avatar video generation restarted.",
-          data: {
-            twinId:
-              twin._id,
-            status:
-              "queued",
-          },
-        });
-    } catch (error) {
-      return fail(
-        res,
-        error,
-        "Unable to restart avatar video generation."
+    if (!avatarUrl) {
+      const error = new Error(
+        "Upload an avatar image before generating a video."
       );
+
+      error.statusCode = 400;
+      throw error;
     }
-  };
+
+    const productId =
+      twin.appearance?.avatarVideoProductId;
+
+    if (!productId) {
+      const error = new Error(
+        "No product is associated with this avatar video. Please generate a new product video."
+      );
+
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const product = await Product.findOne({
+      _id: productId,
+      userId: currentUserId,
+      status: "active",
+    }).lean();
+
+    if (!product) {
+      const error = new Error(
+        "The associated product no longer exists."
+      );
+
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const status =
+      twin.appearance?.avatarVideoStatus;
+
+    if (
+      status === "queued" ||
+      status === "processing"
+    ) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Avatar video generation is already running.",
+        data: {
+          twinId: twin._id,
+          status,
+        },
+      });
+    }
+
+    twin.appearance.avatarVideoStatus =
+      "queued";
+
+    twin.appearance.avatarVideoError = "";
+    twin.appearance.avatarVideoOperation = "";
+
+    await twin.save();
+
+    setImmediate(() => {
+      processAvatarVideo({
+        twinId: twin._id,
+        userId: currentUserId,
+        imageUrl: avatarUrl,
+        twin,
+        product,
+      }).catch((error) => {
+        console.error(
+          "RETRY AVATAR VIDEO ERROR:",
+          error
+        );
+      });
+    });
+
+    return res.status(202).json({
+      success: true,
+      message:
+        "Avatar video generation restarted.",
+      data: {
+        twinId: twin._id,
+        productId: product._id,
+        productName: product.name,
+        status: "queued",
+      },
+    });
+  } catch (error) {
+    return fail(
+      res,
+      error,
+      "Unable to restart avatar video generation."
+    );
+  }
+};
 
 
   /* =========================================================
