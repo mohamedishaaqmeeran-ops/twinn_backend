@@ -4,7 +4,7 @@ const Twin =
 const Product =
   require("../../models/Product");
 
-
+const service = require("./twin.service");
 
 const {
   processAvatarVideo,
