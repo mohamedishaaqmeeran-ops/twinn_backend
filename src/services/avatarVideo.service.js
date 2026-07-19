@@ -21,7 +21,20 @@ const POLL_INTERVAL =
 const TIMEOUT =
   Number(
     process.env.AVATAR_VIDEO_TIMEOUT_MS
-  ) || 10 * 60 * 1000;
+  ) ||
+  10 * 60 * 1000;
+
+/* =========================================================
+   WAIT
+========================================================= */
+
+const wait = (milliseconds) =>
+  new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      milliseconds
+    );
+  });
 
 /* =========================================================
    CLEAN TEXT
@@ -29,7 +42,7 @@ const TIMEOUT =
 
 const cleanText = (
   value,
-  maxLength = 300
+  maxLength = 250
 ) => {
   if (
     value === undefined ||
@@ -49,13 +62,8 @@ const cleanText = (
    FORMAT PRICE
 ========================================================= */
 
-const formatPrice = (
-  product
-) => {
-  const price =
-    product?.price ??
-    product?.salePrice ??
-    product?.sellingPrice;
+const formatPrice = (product) => {
+  const price = product?.price;
 
   if (
     price === undefined ||
@@ -67,9 +75,7 @@ const formatPrice = (
 
   const currency =
     cleanText(
-      product?.currency ||
-        product?.currencyCode ||
-        "INR",
+      product?.currency || "INR",
       10
     ).toUpperCase();
 
@@ -95,129 +101,118 @@ const formatPrice = (
 };
 
 /* =========================================================
-   NORMALIZE FEATURES
+   GET PRODUCT FEATURES
 ========================================================= */
 
 const getProductFeatures = (
   product
 ) => {
   if (
-    Array.isArray(product?.features)
+    !Array.isArray(
+      product?.features
+    )
   ) {
-    return product.features
-      .map((feature) => {
-        if (
-          typeof feature === "string"
-        ) {
-          return cleanText(
-            feature,
-            80
-          );
-        }
-
-        return cleanText(
-          feature?.name ||
-            feature?.title ||
-            feature?.value,
-          80
-        );
-      })
-      .filter(Boolean)
-      .slice(0, 2);
+    return [];
   }
 
-  if (
-    typeof product?.features ===
-    "string"
-  ) {
-    return product.features
-      .split(/[,|;\n]/)
-      .map((feature) =>
-        cleanText(feature, 80)
-      )
-      .filter(Boolean)
-      .slice(0, 2);
-  }
-
-  return [];
+  return product.features
+    .map((feature) =>
+      cleanText(feature, 60)
+    )
+    .filter(Boolean)
+    .slice(0, 2);
 };
 
 /* =========================================================
-   BUILD PRODUCT SPEECH
+   BUILD BRAND + PRODUCT SPEECH
 ========================================================= */
 
-const buildProductSpeech = ({
-  product,
-}) => {
-  const productName =
-    cleanText(
-      product?.name ||
-        product?.productName ||
-        product?.title ||
-        "this product",
-      80
-    );
+const buildBrandProductSpeech =
+  ({
+    twin,
+    product,
+  }) => {
+    const brandName =
+      cleanText(
+        twin?.brandName ||
+          twin?.name ||
+          "our brand",
+        50
+      );
 
-  const brand =
-    cleanText(
-      product?.brand ||
-        product?.brandName,
-      60
-    );
+    const brandDescription =
+      cleanText(
+        twin?.brandDescription,
+        90
+      );
 
-  const shortDescription =
-    cleanText(
-      product?.shortDescription ||
+    const productName =
+      cleanText(
+        product?.name ||
+          "this product",
+        60
+      );
+
+    const productDescription =
+      cleanText(
         product?.description,
-      130
-    );
+        100
+      );
 
-  const features =
-    getProductFeatures(product);
+    const features =
+      getProductFeatures(
+        product
+      );
 
-  const price =
-    formatPrice(product);
+    const price =
+      formatPrice(product);
 
-  const sentences = [];
+    const sentences = [];
 
-  sentences.push(
-    `Meet ${productName}.`
-  );
-
-  if (brand) {
     sentences.push(
-      `It is presented by ${brand}.`
+      `Welcome to ${brandName}.`
     );
-  }
 
-  /*
-   * Keep the dialogue short because the generated
-   * video duration is only eight seconds.
-   */
+    /*
+     * Keep the complete speech short because
+     * the generated video is only 8 seconds.
+     */
 
-  if (shortDescription) {
+    if (brandDescription) {
+      sentences.push(
+        brandDescription
+      );
+    }
+
     sentences.push(
-      shortDescription
+      `Meet ${productName}.`
     );
-  } else if (features.length > 0) {
-    sentences.push(
-      `It features ${features.join(
-        " and "
-      )}.`
-    );
-  }
 
-  if (price) {
-    sentences.push(
-      `It is available for ${price}.`
-    );
-  }
+    if (productDescription) {
+      sentences.push(
+        productDescription
+      );
+    } else if (
+      features.length > 0
+    ) {
+      sentences.push(
+        `It features ${features.join(
+          " and "
+        )}.`
+      );
+    }
 
-  return sentences
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-};
+    if (price) {
+      sentences.push(
+        `Available for ${price}.`
+      );
+    }
+
+    return sentences
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  };
 
 /* =========================================================
    DOWNLOAD IMAGE
@@ -255,16 +250,16 @@ const downloadImage =
       )
     ) {
       throw new Error(
-        `Avatar URL did not return an image. Received: ${contentType}`
+        "Avatar URL did not return an image."
       );
     }
 
-    const buffer =
+    const imageBuffer =
       Buffer.from(
         response.data
       );
 
-    if (!buffer.length) {
+    if (!imageBuffer.length) {
       throw new Error(
         "Downloaded avatar image is empty."
       );
@@ -272,7 +267,7 @@ const downloadImage =
 
     return {
       imageBytes:
-        buffer.toString(
+        imageBuffer.toString(
           "base64"
         ),
 
@@ -284,26 +279,13 @@ const downloadImage =
   };
 
 /* =========================================================
-   WAIT
-========================================================= */
-
-const wait = (
-  milliseconds
-) =>
-  new Promise((resolve) => {
-    setTimeout(
-      resolve,
-      milliseconds
-    );
-  });
-
-/* =========================================================
    GENERATE AVATAR VIDEO
 ========================================================= */
 
 const generateAvatarVideo =
   async ({
     imageUrl,
+    twin,
     product,
   }) => {
     if (
@@ -321,11 +303,13 @@ const generateAvatarVideo =
       );
     }
 
-    if (
-      !product ||
-      typeof product !==
-        "object"
-    ) {
+    if (!twin) {
+      throw new Error(
+        "Twin details are required for avatar video generation."
+      );
+    }
+
+    if (!product) {
       throw new Error(
         "Product details are required for avatar video generation."
       );
@@ -334,32 +318,41 @@ const generateAvatarVideo =
     const productName =
       cleanText(
         product?.name ||
-          product?.productName ||
-          product?.title ||
           "the product",
-        80
+        60
       );
 
-    const productSpeech =
-      buildProductSpeech({
+    const brandName =
+      cleanText(
+        twin?.brandName ||
+          twin?.name ||
+          "the brand",
+        60
+      );
+
+    const speech =
+      buildBrandProductSpeech({
+        twin,
         product,
       });
 
-    if (!productSpeech) {
+    if (!speech) {
       throw new Error(
-        "Unable to build product speech from the supplied product."
+        "Unable to create brand and product dialogue."
       );
     }
 
     console.log(
-      "STARTING VEO AVATAR VIDEO:",
+      "STARTING AVATAR VIDEO:",
       {
         model:
           VIDEO_MODEL,
 
+        brandName,
+
         productName,
 
-        productSpeech,
+        speech,
       }
     );
 
@@ -372,32 +365,36 @@ const generateAvatarVideo =
       );
 
     const prompt = `
-Create a realistic vertical product presentation video from the supplied presenter image.
+Create a realistic vertical ecommerce presentation video using the supplied presenter image.
 
-Preserve the presenter's identity, facial features, hairstyle, skin tone, clothing and overall appearance.
+Preserve the presenter's exact identity, facial features, hairstyle, skin tone, clothing and appearance.
 
-The presenter looks directly at the camera and clearly says this exact dialogue in English:
+The presenter looks directly at the camera and says this exact dialogue clearly in English:
 
-${productSpeech}
+"${speech}"
 
 Presentation requirements:
-- Natural and confident English voice
-- Accurate lip synchronization
-- Clearly pronounce "${productName}"
-- Natural blinking and smiling
-- Subtle head and upper-body movement
-- Small professional hand gestures
+- Use a natural and friendly English voice
+- Accurately synchronize the lips with the dialogue
+- Clearly pronounce the brand name "${brandName}"
+- Clearly pronounce the product name "${productName}"
+- Smile naturally
+- Blink naturally
+- Use subtle head movement
+- Use small professional hand gestures
 - Keep the presenter centered
-- Clear studio-quality speech
+- Use clear studio-quality speech
 
 Restrictions:
 - Do not change the presenter's identity
-- Do not add another person
-- Do not add subtitles or visible text
+- Do not introduce another person
+- Do not add subtitles
+- Do not add visible text
 - Do not add background music
-- Do not add unrelated products
-- Do not invent claims, prices, discounts or features
-- Speak only the supplied dialogue
+- Do not mention unrelated products
+- Do not invent product features
+- Do not invent prices or discounts
+- Speak only the provided dialogue
 `.trim();
 
     let operation =
@@ -429,8 +426,7 @@ Restrictions:
         });
 
     const operationName =
-      operation?.name ||
-      "";
+      operation?.name || "";
 
     const startedAt =
       Date.now();
@@ -459,7 +455,7 @@ Restrictions:
           });
 
       console.log(
-        "VEO VIDEO STATUS:",
+        "VEO OPERATION STATUS:",
         {
           operationName,
           done:
@@ -475,7 +471,7 @@ Restrictions:
     ) {
       throw new Error(
         operation.error
-          .message ||
+          ?.message ||
           "Veo video generation failed."
       );
     }
@@ -526,7 +522,7 @@ Restrictions:
 
         prompt,
 
-        productSpeech,
+        speech,
       };
     } finally {
       await fs.promises
@@ -539,5 +535,5 @@ Restrictions:
 
 module.exports = {
   generateAvatarVideo,
-  buildProductSpeech,
+  buildBrandProductSpeech,
 };

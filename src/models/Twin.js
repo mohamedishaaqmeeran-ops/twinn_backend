@@ -8,7 +8,9 @@ const mongoose =
 const appearanceSchema =
   new mongoose.Schema(
     {
-      /* Uploaded source image */
+      /* =====================================================
+         UPLOADED SOURCE IMAGE
+      ===================================================== */
 
       avatarUrl: {
         type: String,
@@ -22,44 +24,55 @@ const appearanceSchema =
         trim: true,
       },
 
-      /* Generated motion video */
+      /* =====================================================
+         GENERATED AVATAR VIDEO
+      ===================================================== */
 
-     avatarVideoUrl: {
-  type: String,
-  default: "",
-},
+      avatarVideoUrl: {
+        type: String,
+        default: "",
+        trim: true,
+      },
 
-avatarVideoPublicId: {
-  type: String,
-  default: "",
-},
+      avatarVideoPublicId: {
+        type: String,
+        default: "",
+        trim: true,
+      },
 
-avatarVideoStatus: {
-  type: String,
-  enum: [
-    "idle",
-    "queued",
-    "processing",
-    "completed",
-    "failed",
-  ],
-  default: "idle",
-},
+      avatarVideoStatus: {
+        type: String,
 
-avatarVideoError: {
-  type: String,
-  default: "",
-},
+        enum: [
+          "idle",
+          "queued",
+          "processing",
+          "completed",
+          "failed",
+        ],
 
-avatarVideoOperation: {
-  type: String,
-  default: "",
-},
+        default: "idle",
+      },
+
+      avatarVideoError: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
+      avatarVideoOperation: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+
       avatarVideoModel: {
         type: String,
 
         default:
-          "veo-3.1-generate-001",
+          process.env
+            .VEO_VIDEO_MODEL ||
+          "veo-3.1-generate-preview",
 
         trim: true,
       },
@@ -67,6 +80,37 @@ avatarVideoOperation: {
       avatarVideoPrompt: {
         type: String,
         default: "",
+      },
+
+      /*
+       * Exact brand and product speech used
+       * for the generated avatar video.
+       */
+
+      avatarVideoSpeech: {
+        type: String,
+        default: "",
+      },
+
+      /*
+       * Product used for the currently generated
+       * avatar video.
+       */
+
+      avatarVideoProductId: {
+        type:
+          mongoose.Schema.Types
+            .ObjectId,
+
+        ref: "Product",
+
+        default: null,
+      },
+
+      avatarVideoProductName: {
+        type: String,
+        default: "",
+        trim: true,
       },
 
       avatarVideoGeneratedAt: {
@@ -103,7 +147,9 @@ avatarVideoOperation: {
         default: "720p",
       },
 
-      /* Avatar provider */
+      /* =====================================================
+         AVATAR PROVIDER
+      ===================================================== */
 
       provider: {
         type: String,
@@ -312,6 +358,10 @@ const twinSchema =
         default: () => ({}),
       },
 
+      /*
+       * Products assigned to this AI Twin.
+       */
+
       productIds: [
         {
           type:
@@ -381,7 +431,19 @@ twinSchema.index({
 
 twinSchema.index({
   userId: 1,
-  "appearance.avatarVideoStatus": 1,
+  "appearance.avatarVideoStatus":
+    1,
+});
+
+twinSchema.index({
+  userId: 1,
+  productIds: 1,
+});
+
+twinSchema.index({
+  userId: 1,
+  "appearance.avatarVideoProductId":
+    1,
 });
 
 /* =========================================================

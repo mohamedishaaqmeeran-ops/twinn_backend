@@ -22,10 +22,11 @@ const processAvatarVideo =
     twinId,
     userId,
     imageUrl,
+    twin,
     product,
   }) => {
     try {
-      const twin =
+      const existingTwin =
         await Twin.findOneAndUpdate(
           {
             _id: twinId,
@@ -47,6 +48,17 @@ const processAvatarVideo =
 
               "appearance.avatarVideoOperation":
                 "",
+
+              "appearance.avatarVideoModel":
+                process.env
+                  .VEO_VIDEO_MODEL ||
+                "veo-3.1-generate-preview",
+
+              "appearance.avatarVideoGeneratedAt":
+                null,
+
+              "appearance.provider":
+                "veo",
             },
           },
           {
@@ -54,7 +66,7 @@ const processAvatarVideo =
           }
         );
 
-      if (!twin) {
+      if (!existingTwin) {
         throw new Error(
           "AI Twin not found or access denied."
         );
@@ -66,19 +78,37 @@ const processAvatarVideo =
         );
       }
 
-     const {
-  videoBuffer,
-  operationName,
-  model,
-  prompt,
-} = await generateAvatarVideo({
-  imageUrl,
-  product,
-});
+      if (!product) {
+        throw new Error(
+          "Product details are required."
+        );
+      }
+      if (!product._id) {
+  throw new Error(
+    "Product ID is missing."
+  );
+}
+
+      const {
+        videoBuffer,
+        operationName,
+        model,
+        prompt,
+        speech,
+      } =
+        await generateAvatarVideo({
+          imageUrl,
+          twin:
+            twin ||
+            existingTwin.toObject(),
+          product,
+        });
 
       if (
         !videoBuffer ||
-        !Buffer.isBuffer(videoBuffer)
+        !Buffer.isBuffer(
+          videoBuffer
+        )
       ) {
         throw new Error(
           "Video generation did not return a valid video buffer."
@@ -87,7 +117,8 @@ const processAvatarVideo =
 
       const uploaded =
         await uploadVideoBuffer({
-          buffer: videoBuffer,
+          buffer:
+            videoBuffer,
 
           folder:
             `twinn/users/${userId}/twins/${twinId}`,
@@ -96,61 +127,85 @@ const processAvatarVideo =
             `avatar-motion-${Date.now()}`,
         });
 
-      if (!uploaded?.url) {
-        throw new Error(
-          "Cloudinary did not return a video URL."
-        );
-      }
+      const videoUrl =
+  uploaded.secureUrl ||
+  uploaded.url;
+
+if (!videoUrl) {
+  throw new Error(
+    "Cloudinary did not return a video URL."
+  );
+}
 
       const updatedTwin =
-  await Twin.findOneAndUpdate(
-    {
-      _id: twinId,
-      userId,
-    },
-    {
-      $set: {
-        "appearance.avatarVideoUrl":
-          uploaded.url,
+        await Twin.findOneAndUpdate(
+          {
+            _id: twinId,
+            userId,
+          },
+          {
+            $set: {
+              "appearance.avatarVideoUrl":
+                videoUrl,
 
-        "appearance.avatarVideoPublicId":
-          uploaded.publicId || "",
+              "appearance.avatarVideoPublicId":
+                uploaded.publicId ||
+                "",
 
-        "appearance.avatarVideoStatus":
-          "completed",
+              "appearance.avatarVideoStatus":
+                "completed",
 
-        "appearance.avatarVideoOperation":
-          operationName || "",
+              "appearance.avatarVideoOperation":
+                operationName ||
+                "",
 
-        "appearance.avatarVideoModel":
-          model || "",
+              "appearance.avatarVideoModel":
+                model || "",
 
-        "appearance.avatarVideoPrompt":
-          prompt || "",
+              "appearance.avatarVideoPrompt":
+                prompt || "",
 
-        "appearance.avatarVideoGeneratedAt":
-          new Date(),
+              "appearance.avatarVideoSpeech":
+                speech || "",
 
-        "appearance.avatarVideoError":
-          "",
+              "appearance.avatarVideoProductId":
+                product._id,
 
-        "appearance.provider":
-          "veo",
+              "appearance.avatarVideoProductName":
+                product.name ||
+                "",
 
-        avatarVideoUrl:
-          uploaded.url,
-      },
-    },
-    {
-      new: true,
-    }
-  );
+              "appearance.avatarVideoGeneratedAt":
+                new Date(),
+
+              "appearance.avatarVideoError":
+                "",
+
+              "appearance.provider":
+                "veo",
+
+             
+            },
+
+            $addToSet: {
+              productIds:
+                product._id,
+            },
+          },
+          {
+            new: true,
+            runValidators: true,
+          }
+        );
 
       console.log(
         "AVATAR VIDEO READY:",
         {
           twinId,
-          url: uploaded.url,
+          productId:
+            product._id,
+          url:
+            uploaded.url,
         }
       );
 
@@ -172,7 +227,7 @@ const processAvatarVideo =
               "failed",
 
             "appearance.avatarVideoError":
-              error.message ||
+              error?.message ||
               "Avatar video generation failed.",
           },
         }

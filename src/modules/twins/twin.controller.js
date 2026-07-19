@@ -1,4 +1,10 @@
-const service = require("./twin.service");
+const Twin =
+  require("../../models/Twin");
+
+const Product =
+  require("../../models/Product");
+  
+
 
 const {
   processAvatarVideo,
@@ -182,7 +188,7 @@ exports.saveAppearance =
        * Generate video in background
        */
       setImmediate(() => {
-        processAvatarVideo({
+        AvatarVideo({
           twinId:
             twin._id,
           userId:
@@ -201,7 +207,7 @@ exports.saveAppearance =
         .status(201)
         .json({
           success: true,
-          message:
+          processmessage:
             "Appearance saved. AI Twin video generation started.",
           avatarVideoStatus:
             "queued",
@@ -222,36 +228,58 @@ exports.saveAppearance =
    GET AVATAR VIDEO STATUS
 ========================================================= */
 
+/* =========================================================
+   GET AVATAR VIDEO STATUS
+========================================================= */
+
 exports.getAvatarVideoStatus =
   async (req, res) => {
     try {
+      const userId =
+        req.user.id ||
+        req.user._id;
+
+      const twinId =
+        req.params.twinId;
+
       const twin =
-        await service.getTwin({
-          userId:
-            getUserId(req),
-          twinId:
-            req.params.id,
-        });
+        await Twin.findOne({
+          _id: twinId,
+          userId,
+        })
+          .select(
+            "name brandName appearance.avatarUrl appearance.avatarVideoUrl appearance.avatarVideoStatus appearance.avatarVideoError appearance.avatarVideoProductId appearance.avatarVideoProductName appearance.avatarVideoSpeech appearance.avatarVideoGeneratedAt"
+          )
+          .lean();
+
+      if (!twin) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "AI Twin not found.",
+          });
+      }
 
       return res.json({
         success: true,
+
         data: {
           twinId:
             twin._id,
+
+          brandName:
+            twin.brandName,
 
           avatarUrl:
             twin.appearance
               ?.avatarUrl ||
             "",
 
-          avatarVideoUrl:
+          videoUrl:
             twin.appearance
               ?.avatarVideoUrl ||
-            "",
-
-          avatarVideoPublicId:
-            twin.appearance
-              ?.avatarVideoPublicId ||
             "",
 
           status:
@@ -264,14 +292,19 @@ exports.getAvatarVideoStatus =
               ?.avatarVideoError ||
             "",
 
-          operation:
+          productId:
             twin.appearance
-              ?.avatarVideoOperation ||
+              ?.avatarVideoProductId ||
+            null,
+
+          productName:
+            twin.appearance
+              ?.avatarVideoProductName ||
             "",
 
-          model:
+          speech:
             twin.appearance
-              ?.avatarVideoModel ||
+              ?.avatarVideoSpeech ||
             "",
 
           generatedAt:
@@ -281,11 +314,20 @@ exports.getAvatarVideoStatus =
         },
       });
     } catch (error) {
-      return fail(
-        res,
-        error,
-        "Unable to load avatar video status."
+      console.error(
+        "GET AVATAR VIDEO STATUS ERROR:",
+        error
       );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to get avatar video status.",
+        });
     }
   };
 
@@ -1025,5 +1067,182 @@ exports.deleteTwin =
         error,
         "Unable to delete AI Twin."
       );
+    }
+  };
+
+
+  /* =========================================================
+   GENERATE BRAND + PRODUCT AVATAR VIDEO
+========================================================= */
+
+exports.generateProductAvatarVideo =
+  async (req, res) => {
+    try {
+      const userId =
+        req.user.id ||
+        req.user._id;
+
+      const twinId =
+        req.params.twinId;
+
+      const {
+        productId,
+      } = req.body;
+
+      if (!twinId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Twin ID is required.",
+          });
+      }
+
+      if (!productId) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Product ID is required.",
+          });
+      }
+
+      const twin =
+        await Twin.findOne({
+          _id: twinId,
+          userId,
+        }).lean();
+
+      if (!twin) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "AI Twin not found or access denied.",
+          });
+      }
+
+      if (
+        !twin?.appearance
+          ?.avatarUrl
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Please upload an avatar image first.",
+          });
+      }
+
+      const product =
+        await Product.findOne({
+          _id: productId,
+          userId,
+          status: "active",
+        }).lean();
+
+      if (!product) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "Active product not found or access denied.",
+          });
+      }
+
+      await Twin.findOneAndUpdate(
+        {
+          _id: twinId,
+          userId,
+        },
+        {
+          $set: {
+            "appearance.avatarVideoStatus":
+              "queued",
+
+            "appearance.avatarVideoError":
+              "",
+
+            "appearance.avatarVideoProductId":
+              product._id,
+
+            "appearance.avatarVideoProductName":
+              product.name,
+          },
+
+          $addToSet: {
+            productIds:
+              product._id,
+          },
+        }
+      );
+
+      /*
+       * Run generation in the background.
+       * Do not await this process because Veo may take several minutes.
+       */
+
+      processAvatarVideo({
+        twinId:
+          twin._id,
+
+        userId,
+
+        imageUrl:
+          twin.appearance
+            .avatarUrl,
+
+        twin,
+
+        product,
+      }).catch((error) => {
+        console.error(
+          "BACKGROUND AVATAR VIDEO ERROR:",
+          error.message
+        );
+      });
+
+      return res
+        .status(202)
+        .json({
+          success: true,
+
+          message:
+            "Brand and product avatar video generation started.",
+
+          data: {
+            twinId:
+              twin._id,
+
+            productId:
+              product._id,
+
+            productName:
+              product.name,
+
+            status:
+              "queued",
+          },
+        });
+    } catch (error) {
+      console.error(
+        "GENERATE PRODUCT AVATAR VIDEO ERROR:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+
+          message:
+            error.message ||
+            "Unable to start avatar video generation.",
+        });
     }
   };
