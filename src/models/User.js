@@ -2,6 +2,34 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
+    name: {
+  type: String,
+  trim: true,
+},
+
+phone: {
+  type: String,
+  trim: true,
+},
+
+brand: {
+  type: String,
+  trim: true,
+},
+
+status: {
+  type: String,
+  enum: [
+    "Active",
+    "Blocked",
+  ],
+  default: "Active",
+},
+
+isBlocked: {
+  type: Boolean,
+  default: false,
+},
     email: {
       type: String,
       required: true,

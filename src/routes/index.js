@@ -4,7 +4,8 @@ const express = require(
 
 const router =
   express.Router();
-
+const blogRoutes =
+  require("../modules/blog/blog.routes");
 const productRoutes = require(
   "../modules/products/product.routes"
 );
@@ -87,7 +88,10 @@ router.use(
   "/live",
   liveRoutes
 );
-
+router.use(
+  "/blogs",
+  blogRoutes
+);
 router.use(
   "/twin",
   twinRoutes
