@@ -10,8 +10,9 @@ const {
   protect,
 } = require("../../middleware/auth.middleware");
 
-const requireAdmin =
-  require("../../middleware/admin.middleware");
+const {
+  requireAdmin,
+} = require("../../middleware/admin.middleware");
 
 /* =========================================================
    PUBLIC ROUTES
