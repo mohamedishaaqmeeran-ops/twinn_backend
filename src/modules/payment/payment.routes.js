@@ -1,10 +1,20 @@
-// src/modules/payment/payment.routes.js
-
 const express = require("express");
-const router = express.Router();
 
-const paymentController = require("./payment.controller");
-const { protect } = require("../../middleware/auth.middleware");
+const router =
+  express.Router();
+
+const paymentController =
+  require("./payment.controller");
+
+const {
+  protect,
+} = require(
+  "../../middleware/auth.middleware"
+);
+
+/* =========================================================
+   AUTHENTICATED PAYMENT ROUTES
+========================================================= */
 
 router.post(
   "/create-checkout",
