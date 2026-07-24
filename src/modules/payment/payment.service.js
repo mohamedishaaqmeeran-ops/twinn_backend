@@ -18,12 +18,12 @@ const PRICES = {
   IN: {
     starter: {
       monthly: {
-        amount: 1299,
+        amount: 1039,
         currency: "INR",
       },
 
       yearly: {
-        amount: 12999,
+        amount: 10399,
         currency: "INR",
       },
     },
