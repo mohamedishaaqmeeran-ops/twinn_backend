@@ -114,33 +114,39 @@ exports.getConnections = async (
         userId: req.user.id,
       })
         .select(
-          [
-            "-accessToken",
-            "-refreshToken",
-            "-pageAccessToken",
-            "-instagramStreamKey",
-            "-youtubeStreamKey",
-          ].join(" ")
-        )
+  [
+    "-accessToken",
+    "-refreshToken",
+    "-pageAccessToken",
+    "-instagramStreamKey",
+    "-youtubeStreamKey",
+    "-rumbleStreamKey",
+  ].join(" ")
+)
         .sort({
           createdAt: -1,
         })
         .lean();
 
     const safeConnections =
-      connections.map((connection) => ({
-        ...connection,
+  connections.map((connection) => ({
+    ...connection,
 
-        instagramRtmpConfigured:
-          Boolean(
-            connection.instagramRtmpUrl
-          ),
+    instagramRtmpConfigured:
+      Boolean(
+        connection.instagramRtmpUrl
+      ),
 
-        youtubeRtmpConfigured:
-          Boolean(
-            connection.youtubeStreamUrl
-          ),
-      }));
+    youtubeRtmpConfigured:
+      Boolean(
+        connection.youtubeStreamUrl
+      ),
+
+    rumbleRtmpConfigured:
+      Boolean(
+        connection.rumbleRtmpUrl
+      ),
+  }));
 
     return res.json({
       success: true,
@@ -316,3 +322,199 @@ exports.saveInstagramRtmp = async (
     });
   }
 };
+
+
+
+// ---------------------------------
+// OPEN RUMBLE
+// ---------------------------------
+
+exports.openRumble = (
+  req,
+  res
+) => {
+  return res.redirect(
+    "https://rumble.com/account/livestreams"
+  );
+};
+
+// ---------------------------------
+// SAVE RUMBLE RTMP SETTINGS
+// ---------------------------------
+
+exports.saveRumbleRtmp = async (
+  req,
+  res
+) => {
+  try {
+    const rtmpUrl = String(
+      req.body.rtmpUrl || ""
+    ).trim();
+
+    const streamKey = String(
+      req.body.streamKey || ""
+    ).trim();
+
+    const channelUrl = String(
+      req.body.channelUrl || ""
+    ).trim();
+
+    if (!rtmpUrl || !streamKey) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Rumble RTMP URL and stream key are required.",
+      });
+    }
+
+    const validRtmpUrl =
+      rtmpUrl.startsWith("rtmp://") ||
+      rtmpUrl.startsWith("rtmps://");
+
+    if (!validRtmpUrl) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Rumble RTMP URL must start with rtmp:// or rtmps://.",
+      });
+    }
+
+    if (
+      channelUrl &&
+      !channelUrl.startsWith("http://") &&
+      !channelUrl.startsWith("https://")
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Rumble channel URL must be a valid HTTP or HTTPS URL.",
+      });
+    }
+
+    const normalizedRtmpUrl =
+      rtmpUrl.replace(/\/+$/, "");
+
+    const normalizedStreamKey =
+      streamKey.replace(/^\/+/, "");
+
+    const connection =
+      await Connection.findOneAndUpdate(
+        {
+          userId: req.user.id,
+          platform: "rumble",
+        },
+        {
+          $set: {
+            userId: req.user.id,
+            platform: "rumble",
+            connected: true,
+
+            rumbleRtmpUrl:
+              normalizedRtmpUrl,
+
+            rumbleStreamKey:
+              normalizedStreamKey,
+
+            rumbleChannelUrl:
+              channelUrl,
+
+            rumbleLiveStatus:
+              "idle",
+
+            name:
+              "Rumble",
+
+            username:
+              "Rumble Channel",
+
+            metadata: {
+              connectionType:
+                "manual-rtmp",
+
+              configuredAt:
+                new Date(),
+            },
+          },
+        },
+        {
+          new: true,
+          upsert: true,
+          runValidators: true,
+          setDefaultsOnInsert: true,
+        }
+      );
+
+    return res.json({
+      success: true,
+
+      message:
+        "Rumble RTMP settings saved successfully.",
+
+      data: {
+        id: connection._id,
+        platform: "rumble",
+        connected: true,
+        rtmpConfigured: true,
+        channelUrl:
+          connection.rumbleChannelUrl,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "SAVE RUMBLE RTMP ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+
+      message:
+        error.message ||
+        "Unable to save Rumble RTMP settings.",
+    });
+  }
+};
+
+// ---------------------------------
+// DELETE RUMBLE CONNECTION
+// ---------------------------------
+
+exports.deleteRumbleConnection =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const connection =
+        await Connection.findOneAndDelete({
+          userId: req.user.id,
+          platform: "rumble",
+        });
+
+      if (!connection) {
+        return res.status(404).json({
+          success: false,
+          message:
+            "Rumble connection was not found.",
+        });
+      }
+
+      return res.json({
+        success: true,
+        message:
+          "Rumble disconnected successfully.",
+      });
+    } catch (error) {
+      console.error(
+        "DELETE RUMBLE CONNECTION ERROR:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          error.message ||
+          "Unable to disconnect Rumble.",
+      });
+    }
+  };

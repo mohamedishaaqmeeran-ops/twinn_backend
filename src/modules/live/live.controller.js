@@ -169,3 +169,122 @@ exports.stopYouTubeRTMP =
       });
     }
   };
+
+
+
+  /* =========================================================
+   START RUMBLE RTMP
+========================================================= */
+
+exports.startRumbleRTMP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const result =
+        await liveService
+          .startRumbleRTMP(
+            req.user.id,
+            req.body
+          );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Rumble RTMP stream started.",
+
+        data: result,
+      });
+    } catch (error) {
+      console.error(
+        "START RUMBLE RTMP ERROR:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          error.message ||
+          "Unable to start Rumble RTMP stream.",
+      });
+    }
+  };
+
+/* =========================================================
+   STOP RUMBLE RTMP
+========================================================= */
+
+exports.stopRumbleRTMP =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const result =
+        await liveService
+          .stopRumbleRTMP(
+            req.user.id
+          );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Rumble RTMP stream stopped.",
+
+        data: result,
+      });
+    } catch (error) {
+      console.error(
+        "STOP RUMBLE RTMP ERROR:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          error.message ||
+          "Unable to stop Rumble RTMP stream.",
+      });
+    }
+  };
+
+/* =========================================================
+   GET RUMBLE STATUS
+========================================================= */
+
+exports.getRumbleStatus =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const result =
+        await liveService
+          .getRumbleStatus(
+            req.user.id
+          );
+
+      return res.json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      console.error(
+        "GET RUMBLE STATUS ERROR:",
+        error
+      );
+
+      return res.status(400).json({
+        success: false,
+
+        message:
+          error.message ||
+          "Unable to load Rumble status.",
+      });
+    }
+  };

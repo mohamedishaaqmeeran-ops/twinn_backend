@@ -517,7 +517,271 @@ class LiveService {
 
     return true;
   }
+/* =========================================================
+   START RUMBLE RTMP
+========================================================= */
 
+async startRumbleRTMP(
+  userId,
+  payload
+) {
+  const videoPath = String(
+    payload.videoPath || ""
+  ).trim();
+
+  if (!videoPath) {
+    throw new Error(
+      "Video path is required."
+    );
+  }
+
+  const connection =
+    await Connection.findOne({
+      userId,
+      platform: "rumble",
+      connected: true,
+    }).select(
+      "+rumbleStreamKey"
+    );
+
+  if (!connection) {
+    throw new Error(
+      "Rumble is not connected. Save the Rumble RTMP settings first."
+    );
+  }
+
+  const rtmpUrl = String(
+    connection.rumbleRtmpUrl || ""
+  )
+    .trim()
+    .replace(/\/+$/, "");
+
+  const streamKey = String(
+    connection.rumbleStreamKey || ""
+  )
+    .trim()
+    .replace(/^\/+/, "");
+
+  if (!rtmpUrl) {
+    throw new Error(
+      "Rumble RTMP URL is missing."
+    );
+  }
+
+  if (!streamKey) {
+    throw new Error(
+      "Rumble stream key is missing."
+    );
+  }
+
+  if (
+    !rtmpUrl.startsWith("rtmp://") &&
+    !rtmpUrl.startsWith("rtmps://")
+  ) {
+    throw new Error(
+      "Invalid Rumble RTMP URL."
+    );
+  }
+
+  const streamUrl =
+    `${rtmpUrl}/${streamKey}`;
+
+  await Connection.updateOne(
+    {
+      _id: connection._id,
+    },
+    {
+      $set: {
+        rumbleLiveStatus:
+          "starting",
+      },
+    }
+  );
+
+  try {
+    const result =
+      this.startFFmpeg({
+        userId,
+        platform: "rumble",
+        videoPath,
+        streamUrl,
+
+        onStarted: async () => {
+          await Connection.updateOne(
+            {
+              _id: connection._id,
+            },
+            {
+              $set: {
+                rumbleLiveStatus:
+                  "streaming",
+              },
+            }
+          ).catch((error) => {
+            console.error(
+              "UPDATE RUMBLE START STATUS ERROR:",
+              error.message
+            );
+          });
+        },
+
+        onEnded: async ({
+          code,
+        }) => {
+          await Connection.updateOne(
+            {
+              _id: connection._id,
+            },
+            {
+              $set: {
+                rumbleLiveStatus:
+                  code === 0
+                    ? "complete"
+                    : "failed",
+              },
+            }
+          ).catch((error) => {
+            console.error(
+              "UPDATE RUMBLE END STATUS ERROR:",
+              error.message
+            );
+          });
+        },
+
+        onError: async (
+          error
+        ) => {
+          console.error(
+            "RUMBLE STREAM ERROR:",
+            error
+          );
+
+          await Connection.updateOne(
+            {
+              _id: connection._id,
+            },
+            {
+              $set: {
+                rumbleLiveStatus:
+                  "failed",
+              },
+            }
+          ).catch(() => {});
+        },
+      });
+
+    return {
+      ...result,
+
+      channelUrl:
+        connection.rumbleChannelUrl ||
+        "",
+
+      status:
+        "starting",
+    };
+  } catch (error) {
+    await Connection.updateOne(
+      {
+        _id: connection._id,
+      },
+      {
+        $set: {
+          rumbleLiveStatus:
+            "failed",
+        },
+      }
+    ).catch(() => {});
+
+    throw error;
+  }
+}
+
+/* =========================================================
+   STOP RUMBLE RTMP
+========================================================= */
+
+async stopRumbleRTMP(
+  userId
+) {
+  const running =
+    this.isRunning(
+      userId,
+      "rumble"
+    );
+
+  await this.stopLive(
+    userId,
+    "rumble"
+  );
+
+  await Connection.updateOne(
+    {
+      userId,
+      platform: "rumble",
+    },
+    {
+      $set: {
+        rumbleLiveStatus:
+          "complete",
+      },
+    }
+  );
+
+  return {
+    stopped: running,
+    status: "complete",
+  };
+}
+
+/* =========================================================
+   GET RUMBLE STREAM STATUS
+========================================================= */
+
+async getRumbleStatus(
+  userId
+) {
+  const connection =
+    await Connection.findOne({
+      userId,
+      platform: "rumble",
+      connected: true,
+    }).select(
+      "-rumbleStreamKey"
+    );
+
+  if (!connection) {
+    throw new Error(
+      "Rumble is not connected."
+    );
+  }
+
+  const processRunning =
+    this.isRunning(
+      userId,
+      "rumble"
+    );
+
+  return {
+    connected: true,
+
+    configured:
+      Boolean(
+        connection.rumbleRtmpUrl
+      ),
+
+    processRunning,
+
+    status:
+      processRunning
+        ? "streaming"
+        : connection.rumbleLiveStatus,
+
+    channelUrl:
+      connection.rumbleChannelUrl ||
+      "",
+  };
+}
   async stopPlatforms(
     userId,
     platforms = []
@@ -891,4 +1155,18 @@ exports.stopYouTubeRTMP =
     };
   };
 
-module.exports = new LiveService();
+const liveService =
+  new LiveService();
+
+/*
+ * Preserve the existing YouTube RTMP
+ * functions without changing their logic.
+ */
+liveService.startYouTubeRTMP =
+  exports.startYouTubeRTMP;
+
+liveService.stopYouTubeRTMP =
+  exports.stopYouTubeRTMP;
+
+module.exports =
+  liveService;

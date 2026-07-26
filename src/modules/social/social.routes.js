@@ -90,5 +90,35 @@ router.post(
   authMiddleware.protect,
   youtubeLiveController.endBroadcast
 );
+/* =========================================================
+   RUMBLE MANUAL RTMP CONNECTION
+========================================================= */
 
+/*
+ * Opens the Rumble livestream management page.
+ * This does not automatically obtain the stream key.
+ */
+router.get(
+  "/rumble/open",
+  authMiddleware.protect,
+  socialController.openRumble
+);
+
+/*
+ * Saves the user's Rumble RTMP URL and stream key.
+ */
+router.patch(
+  "/connections/rumble/rtmp",
+  authMiddleware.protect,
+  socialController.saveRumbleRtmp
+);
+
+/*
+ * Removes only the Rumble connection.
+ */
+router.delete(
+  "/connections/rumble",
+  authMiddleware.protect,
+  socialController.deleteRumbleConnection
+);
 module.exports = router;

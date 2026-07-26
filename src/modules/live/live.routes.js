@@ -80,4 +80,27 @@ router.post(
   liveController.stopYouTubeRTMP
 );
 
+
+
+/* =========================================================
+   RUMBLE RTMP PROCESS
+========================================================= */
+
+router.post(
+  "/start-rumble-rtmp",
+  protect,
+  liveController.startRumbleRTMP
+);
+
+router.post(
+  "/stop-rumble-rtmp",
+  protect,
+  liveController.stopRumbleRTMP
+);
+
+router.get(
+  "/rumble-status",
+  protect,
+  liveController.getRumbleStatus
+);
 module.exports = router;

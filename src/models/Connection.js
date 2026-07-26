@@ -41,6 +41,7 @@ const connectionSchema =
           "facebook",
           "youtube",
           "tiktok",
+          "rumble",
         ],
 
         required:
@@ -52,6 +53,36 @@ const connectionSchema =
         trim:
           true,
       },
+      rumbleRtmpUrl: {
+  type: String,
+  trim: true,
+  default: "",
+},
+
+rumbleStreamKey: {
+  type: String,
+  trim: true,
+  default: "",
+  select: false,
+},
+
+rumbleChannelUrl: {
+  type: String,
+  trim: true,
+  default: "",
+},
+
+rumbleLiveStatus: {
+  type: String,
+  enum: [
+    "idle",
+    "starting",
+    "streaming",
+    "complete",
+    "failed",
+  ],
+  default: "idle",
+},
 
       connected: {
         type:
