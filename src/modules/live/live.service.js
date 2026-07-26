@@ -1,1172 +1,1108 @@
-const fetch = require("node-fetch");
-const fs = require("fs");
-const { spawn } = require("child_process");
-
-
-const ffmpegPath = require(
-  "ffmpeg-static"
+const fs = require(
+  "fs"
 );
 
-const Connection = require(
-  "../../models/Connection"
-);
-
-const youtubeProcessManager =
+const Connection =
   require(
-    "./youtubeProcess.manager"
+    "../../models/Connection"
   );
 
-
-
-const runningStreams = new Map();
-
-const META_GRAPH_VERSION =
-  process.env.META_GRAPH_VERSION ||
-  "v25.0";
-
-class LiveService {
-  getStreamKey(userId, platform) {
-    return `${userId}-${platform}`;
-  }
-
-  isRunning(userId, platform) {
-    return runningStreams.has(
-      this.getStreamKey(userId, platform)
-    );
-  }
-
-  startFFmpeg({
-    userId,
-    platform,
-    videoPath,
-    streamUrl,
-    onStarted,
-    onEnded,
-    onError,
-  }) {
-    const key = this.getStreamKey(
-      userId,
-      platform
-    );
-
-    if (runningStreams.has(key)) {
-      throw new Error(
-        `${platform} live is already running.`
-      );
-    }
-
-    if (!videoPath) {
-      throw new Error(
-        "Video path is required."
-      );
-    }
-
-    const isRemoteVideo =
-      videoPath.startsWith("http://") ||
-      videoPath.startsWith("https://");
-
-    if (
-      !isRemoteVideo &&
-      !fs.existsSync(videoPath)
-    ) {
-      throw new Error(
-        `Video file not found: ${videoPath}`
-      );
-    }
-
-    const ffmpegArguments = [
-      "-re",
-      "-stream_loop",
-      "-1",
-      "-i",
-      videoPath,
-
-      "-c:v",
-      "libx264",
-
-      "-preset",
-      "veryfast",
-
-      "-tune",
-      "zerolatency",
-
-      "-b:v",
-      "2500k",
-
-      "-maxrate",
-      "2500k",
-
-      "-bufsize",
-      "5000k",
-
-      "-pix_fmt",
-      "yuv420p",
-
-      "-g",
-      "60",
-
-      "-keyint_min",
-      "60",
-
-      "-sc_threshold",
-      "0",
-
-      "-c:a",
-      "aac",
-
-      "-b:a",
-      "128k",
-
-      "-ar",
-      "44100",
-
-      "-ac",
-      "2",
-
-      "-f",
-      "flv",
-
-      streamUrl,
-    ];
-
-    const ffmpeg = spawn(
-      process.env.FFMPEG_PATH || "ffmpeg",
-      ffmpegArguments,
-      {
-        stdio: [
-          "ignore",
-          "ignore",
-          "pipe",
-        ],
-      }
-    );
-
-    let started = false;
-
-    ffmpeg.stderr.on("data", (data) => {
-      const output = data.toString();
-
-      console.log(
-        `[${platform} FFmpeg]`,
-        output
-      );
-
-      if (
-        !started &&
-        (
-          output.includes("frame=") ||
-          output.includes("Output #0")
-        )
-      ) {
-        started = true;
-
-        if (
-          typeof onStarted === "function"
-        ) {
-          onStarted();
-        }
-      }
-    });
-
-    ffmpeg.on("error", (error) => {
-      console.error(
-        `${platform} FFmpeg process error:`,
-        error
-      );
-
-      runningStreams.delete(key);
-
-      if (typeof onError === "function") {
-        onError(error);
-      }
-    });
-
-    ffmpeg.on(
-      "close",
-      (code, signal) => {
-        console.log(
-          `${platform} FFmpeg closed`,
-          {
-            code,
-            signal,
-          }
-        );
-
-        runningStreams.delete(key);
-
-        if (typeof onEnded === "function") {
-          onEnded({
-            code,
-            signal,
-          });
-        }
-      }
-    );
-
-    runningStreams.set(key, {
-      process: ffmpeg,
-      platform,
-      userId,
-      startedAt: new Date(),
-    });
-
-    return {
-      platform,
-      started: true,
-    };
-  }
-
- async startInstagramLive(
-  userId,
-  {
-    videoPath,
-    rtmpUrl,
-    streamKey,
-    onStarted,
-    onEnded,
-    onError,
-  }
-) {
-  const connection =
-    await Connection.findOne({
-      userId,
-      platform: "instagram",
-      connected: true,
-    });
-
-  if (!connection) {
-    throw new Error(
-      "Instagram is not connected for this user."
-    );
-  }
-
-  const normalizedRtmpUrl =
-    String(rtmpUrl || "")
-      .trim()
-      .replace(/\/+$/, "");
-
-  const normalizedStreamKey =
-    String(streamKey || "")
-      .trim()
-      .replace(/^\/+/, "");
-
-  console.log(
-    "INSTAGRAM STREAM INPUT:",
-    {
-      userId: String(userId),
-
-      hasVideoPath:
-        Boolean(videoPath),
-
-      hasRtmpUrl:
-        Boolean(normalizedRtmpUrl),
-
-      hasStreamKey:
-        Boolean(
-          normalizedStreamKey
-        ),
-    }
+const ffmpegService =
+  require(
+    "./ffmpeg.service"
   );
-
-  if (!normalizedRtmpUrl) {
-    throw new Error(
-      "Instagram RTMP URL is missing for this schedule."
-    );
-  }
-
-  if (!normalizedStreamKey) {
-    throw new Error(
-      "Instagram stream key is missing for this schedule."
-    );
-  }
-
-  const streamUrl =
-    `${normalizedRtmpUrl}/${normalizedStreamKey}`;
-
-  return this.startFFmpeg({
-    userId,
-    platform: "instagram",
-    videoPath,
-    streamUrl,
-    onStarted,
-    onEnded,
-    onError,
-  });
-}
-
-  async startInstagramRTMP(
-  userId,
-  body
-) {
-  return this.startInstagramLive(
-    userId,
-    {
-      videoPath: body.videoPath,
-      rtmpUrl: body.rtmpUrl,
-      streamKey: body.streamKey,
-    }
-  );
-}
-
-  async createFacebookLive({
-    connection,
-    title,
-    description,
-  }) {
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_GRAPH_VERSION}/` +
-      `${connection.pageId}/live_videos`;
-
-    const body =
-      new URLSearchParams({
-        access_token:
-          connection.pageAccessToken,
-
-        status: "LIVE_NOW",
-
-        title:
-          title ||
-          "Twinn Live Shopping",
-
-        description:
-          description ||
-          "Live shopping powered by Twinn.live",
-      });
-
-    const response = await fetch(url, {
-      method: "POST",
-
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
-      },
-
-      body,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-          "Unable to create Facebook Live."
-      );
-    }
-
-    return data;
-  }
-
-  async startFacebookLive(
-    userId,
-    {
-      videoPath,
-      title,
-      description,
-      onStarted,
-      onEnded,
-      onError,
-    }
-  ) {
-    if (!videoPath) {
-      throw new Error(
-        "Video path is required."
-      );
-    }
-
-    const connection =
-      await Connection.findOne({
-        userId,
-        platform: "facebook",
-        connected: true,
-      }).select("+pageAccessToken");
-
-    if (
-      !connection ||
-      !connection.pageId ||
-      !connection.pageAccessToken
-    ) {
-      throw new Error(
-        "Facebook Page is not connected."
-      );
-    }
-
-    const data =
-      await this.createFacebookLive({
-        connection,
-        title,
-        description,
-      });
-
-    const streamUrl =
-      data.secure_stream_url ||
-      data.stream_url;
-
-    if (!streamUrl) {
-      throw new Error(
-        "Facebook stream URL was not received."
-      );
-    }
-
-    await Connection.findOneAndUpdate(
-      {
-        userId,
-        platform: "facebook",
-      },
-      {
-        facebookLiveVideoId: data.id,
-      }
-    );
-
-    this.startFFmpeg({
-      userId,
-      platform: "facebook",
-      videoPath,
-      streamUrl,
-      onStarted,
-      onEnded,
-      onError,
-    });
-
-    return {
-      liveVideoId: data.id,
-      streamUrl,
-    };
-  }
-
-  async stopLive(userId, platform) {
-    const key = this.getStreamKey(
-      userId,
-      platform
-    );
-
-    const running =
-      runningStreams.get(key);
-
-    if (running?.process) {
-      running.process.kill("SIGTERM");
-      runningStreams.delete(key);
-    }
-
-    return true;
-  }
-
-  async stopFacebookLive(userId) {
-    await this.stopLive(
-      userId,
-      "facebook"
-    );
-
-    const connection =
-      await Connection.findOne({
-        userId,
-        platform: "facebook",
-      }).select("+pageAccessToken");
-
-    if (
-      !connection?.facebookLiveVideoId ||
-      !connection?.pageAccessToken
-    ) {
-      return true;
-    }
-
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_GRAPH_VERSION}/` +
-      `${connection.facebookLiveVideoId}`;
-
-    const body =
-      new URLSearchParams({
-        access_token:
-          connection.pageAccessToken,
-
-        end_live_video: "true",
-      });
-
-    const response = await fetch(url, {
-      method: "POST",
-
-      headers: {
-        "Content-Type":
-          "application/x-www-form-urlencoded",
-      },
-
-      body,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-          "Unable to stop Facebook Live."
-      );
-    }
-
-    await Connection.findOneAndUpdate(
-      {
-        userId,
-        platform: "facebook",
-      },
-      {
-        $unset: {
-          facebookLiveVideoId: 1,
-        },
-      }
-    );
-
-    return true;
-  }
-/* =========================================================
-   START RUMBLE RTMP
-========================================================= */
-
-async startRumbleRTMP(
-  userId,
-  payload
-) {
-  const videoPath = String(
-    payload.videoPath || ""
-  ).trim();
-
-  if (!videoPath) {
-    throw new Error(
-      "Video path is required."
-    );
-  }
-
-  const connection =
-    await Connection.findOne({
-      userId,
-      platform: "rumble",
-      connected: true,
-    }).select(
-      "+rumbleStreamKey"
-    );
-
-  if (!connection) {
-    throw new Error(
-      "Rumble is not connected. Save the Rumble RTMP settings first."
-    );
-  }
-
-  const rtmpUrl = String(
-    connection.rumbleRtmpUrl || ""
-  )
-    .trim()
-    .replace(/\/+$/, "");
-
-  const streamKey = String(
-    connection.rumbleStreamKey || ""
-  )
-    .trim()
-    .replace(/^\/+/, "");
-
-  if (!rtmpUrl) {
-    throw new Error(
-      "Rumble RTMP URL is missing."
-    );
-  }
-
-  if (!streamKey) {
-    throw new Error(
-      "Rumble stream key is missing."
-    );
-  }
-
-  if (
-    !rtmpUrl.startsWith("rtmp://") &&
-    !rtmpUrl.startsWith("rtmps://")
-  ) {
-    throw new Error(
-      "Invalid Rumble RTMP URL."
-    );
-  }
-
-  const streamUrl =
-    `${rtmpUrl}/${streamKey}`;
-
-  await Connection.updateOne(
-    {
-      _id: connection._id,
-    },
-    {
-      $set: {
-        rumbleLiveStatus:
-          "starting",
-      },
-    }
-  );
-
-  try {
-    const result =
-      this.startFFmpeg({
-        userId,
-        platform: "rumble",
-        videoPath,
-        streamUrl,
-
-        onStarted: async () => {
-          await Connection.updateOne(
-            {
-              _id: connection._id,
-            },
-            {
-              $set: {
-                rumbleLiveStatus:
-                  "streaming",
-              },
-            }
-          ).catch((error) => {
-            console.error(
-              "UPDATE RUMBLE START STATUS ERROR:",
-              error.message
-            );
-          });
-        },
-
-        onEnded: async ({
-          code,
-        }) => {
-          await Connection.updateOne(
-            {
-              _id: connection._id,
-            },
-            {
-              $set: {
-                rumbleLiveStatus:
-                  code === 0
-                    ? "complete"
-                    : "failed",
-              },
-            }
-          ).catch((error) => {
-            console.error(
-              "UPDATE RUMBLE END STATUS ERROR:",
-              error.message
-            );
-          });
-        },
-
-        onError: async (
-          error
-        ) => {
-          console.error(
-            "RUMBLE STREAM ERROR:",
-            error
-          );
-
-          await Connection.updateOne(
-            {
-              _id: connection._id,
-            },
-            {
-              $set: {
-                rumbleLiveStatus:
-                  "failed",
-              },
-            }
-          ).catch(() => {});
-        },
-      });
-
-    return {
-      ...result,
-
-      channelUrl:
-        connection.rumbleChannelUrl ||
-        "",
-
-      status:
-        "starting",
-    };
-  } catch (error) {
-    await Connection.updateOne(
-      {
-        _id: connection._id,
-      },
-      {
-        $set: {
-          rumbleLiveStatus:
-            "failed",
-        },
-      }
-    ).catch(() => {});
-
-    throw error;
-  }
-}
 
 /* =========================================================
-   STOP RUMBLE RTMP
+   SUPPORTED PLATFORMS
 ========================================================= */
 
-async stopRumbleRTMP(
-  userId
-) {
-  const running =
-    this.isRunning(
-      userId,
-      "rumble"
-    );
-
-  await this.stopLive(
-    userId,
-    "rumble"
-  );
-
-  await Connection.updateOne(
-    {
-      userId,
-      platform: "rumble",
-    },
-    {
-      $set: {
-        rumbleLiveStatus:
-          "complete",
-      },
-    }
-  );
-
-  return {
-    stopped: running,
-    status: "complete",
-  };
-}
+const SUPPORTED_PLATFORMS = [
+  "instagram",
+  "youtube",
+  "rumble",
+  "kick",
+  "twitch",
+  "twitter",
+];
 
 /* =========================================================
-   GET RUMBLE STREAM STATUS
+   PLATFORM FIELD CONFIGURATION
 ========================================================= */
 
-async getRumbleStatus(
-  userId
-) {
-  const connection =
-    await Connection.findOne({
-      userId,
-      platform: "rumble",
-      connected: true,
-    }).select(
-      "-rumbleStreamKey"
-    );
+const PLATFORM_CONFIG = {
+  instagram: {
+    name:
+      "Instagram",
 
-  if (!connection) {
-    throw new Error(
-      "Rumble is not connected."
-    );
-  }
+    rtmpUrlField:
+      "instagramRtmpUrl",
 
-  const processRunning =
-    this.isRunning(
-      userId,
-      "rumble"
-    );
+    streamKeyField:
+      "instagramStreamKey",
 
-  return {
-    connected: true,
+    liveStatusField:
+      "instagramLiveStatus",
+  },
 
-    configured:
-      Boolean(
-        connection.rumbleRtmpUrl
-      ),
+  youtube: {
+    name:
+      "YouTube",
 
-    processRunning,
+    rtmpUrlField:
+      "youtubeStreamUrl",
 
-    status:
-      processRunning
-        ? "streaming"
-        : connection.rumbleLiveStatus,
+    streamKeyField:
+      "youtubeStreamKey",
 
-    channelUrl:
-      connection.rumbleChannelUrl ||
-      "",
-  };
-}
-  async stopPlatforms(
-    userId,
-    platforms = []
-  ) {
-    const results = [];
+    liveStatusField:
+      "youtubeLiveStatus",
+  },
 
-    for (const platform of platforms) {
-      try {
-        if (platform === "facebook") {
-          await this.stopFacebookLive(
-            userId
-          );
-        } else {
-          await this.stopLive(
-            userId,
-            platform
-          );
-        }
+  rumble: {
+    name:
+      "Rumble",
 
-        results.push({
-          platform,
-          success: true,
-        });
-      } catch (error) {
-        results.push({
-          platform,
-          success: false,
-          error: error.message,
-        });
-      }
-    }
+    rtmpUrlField:
+      "rumbleRtmpUrl",
 
-    return results;
-  }
-}
+    streamKeyField:
+      "rumbleStreamKey",
 
-const isHttpVideoUrl = (
-  value
-) => {
-  try {
-    const url = new URL(
-      String(value)
-    );
+    liveStatusField:
+      "rumbleLiveStatus",
+  },
 
-    return (
-      url.protocol ===
-        "http:" ||
-      url.protocol ===
-        "https:"
-    );
-  } catch (_) {
-    return false;
-  }
+  kick: {
+    name:
+      "Kick",
+
+    rtmpUrlField:
+      "kickRtmpUrl",
+
+    streamKeyField:
+      "kickStreamKey",
+
+    liveStatusField:
+      "kickLiveStatus",
+  },
+
+  twitch: {
+    name:
+      "Twitch",
+
+    rtmpUrlField:
+      "twitchRtmpUrl",
+
+    streamKeyField:
+      "twitchStreamKey",
+
+    liveStatusField:
+      "twitchLiveStatus",
+  },
+
+  twitter: {
+    name:
+      "X / Twitter",
+
+    rtmpUrlField:
+      "twitterRtmpUrl",
+
+    streamKeyField:
+      "twitterStreamKey",
+
+    liveStatusField:
+      "twitterLiveStatus",
+  },
 };
 
 /* =========================================================
-   START YOUTUBE RTMP
+   HELPERS
 ========================================================= */
 
-exports.startYouTubeRTMP =
-  async (
-    userId,
-    payload
-  ) => {
-    const videoPath = String(
-      payload.videoPath || ""
-    ).trim();
+const normalizePlatform = (
+  platform
+) => {
+  const value =
+    String(
+      platform || ""
+    )
+      .trim()
+      .toLowerCase();
 
-    if (!videoPath) {
-      throw new Error(
-        "Video path is required."
-      );
-    }
+  return value === "x"
+    ? "twitter"
+    : value;
+};
 
-    if (
-      !isHttpVideoUrl(
-        videoPath
-      )
-    ) {
-      throw new Error(
-        "Video path must be a valid HTTP or HTTPS URL."
-      );
-    }
+const normalizePlatforms = (
+  platforms
+) => {
+  const list =
+    Array.isArray(
+      platforms
+    )
+      ? platforms
+      : String(
+          platforms || ""
+        )
+          .split(",")
+          .map(
+            (
+              platform
+            ) =>
+              platform.trim()
+          );
 
-    const connection =
-      await Connection.findOne({
-        userId,
-        platform: "youtube",
-        connected: true,
-      }).select(
-        "+youtubeStreamKey"
-      );
+  return [
+    ...new Set(
+      list
+        .map(
+          normalizePlatform
+        )
+        .filter(Boolean)
+    ),
+  ];
+};
 
-    if (!connection) {
-      throw new Error(
-        "YouTube is not connected."
-      );
-    }
+const validatePlatforms = (
+  platforms
+) => {
+  if (
+    !platforms.length
+  ) {
+    throw new Error(
+      "Select at least one platform."
+    );
+  }
 
-    if (
-      !connection
-        .youtubeStreamUrl ||
-      !connection
-        .youtubeStreamKey ||
-      !connection
-        .youtubeBroadcastId ||
-      !connection
-        .youtubeStreamId
-    ) {
-      throw new Error(
-        "Create the YouTube broadcast before starting RTMP."
-      );
-    }
+  const unsupported =
+    platforms.filter(
+      (
+        platform
+      ) =>
+        !SUPPORTED_PLATFORMS.includes(
+          platform
+        )
+    );
 
-    const existingProcess =
-      youtubeProcessManager
-        .getProcess(userId);
+  if (
+    unsupported.length
+  ) {
+    throw new Error(
+      `Unsupported platforms: ${unsupported.join(
+        ", "
+      )}`
+    );
+  }
+};
 
-    if (
-      existingProcess &&
-      !existingProcess.killed
-    ) {
-      throw new Error(
-        "A YouTube streaming process is already running."
-      );
-    }
-
-    const rtmpDestination =
-      `${connection.youtubeStreamUrl.replace(
+const buildDestinationUrl = (
+  rtmpUrl,
+  streamKey
+) => {
+  const normalizedUrl =
+    String(
+      rtmpUrl || ""
+    )
+      .trim()
+      .replace(
         /\/+$/,
         ""
-      )}/${connection.youtubeStreamKey.replace(
+      );
+
+  const normalizedKey =
+    String(
+      streamKey || ""
+    )
+      .trim()
+      .replace(
         /^\/+/,
         ""
-      )}`;
-
-    const args = [
-      "-hide_banner",
-      "-loglevel",
-      "info",
-
-      /*
-       * Read input in real time.
-       */
-      "-re",
-
-      /*
-       * Repeat the uploaded video.
-       * Remove these two arguments
-       * to play it only once.
-       */
-      "-stream_loop",
-      "-1",
-
-      "-i",
-      videoPath,
-
-      /*
-       * Video encoding.
-       */
-      "-c:v",
-      "libx264",
-
-      "-preset",
-      "veryfast",
-
-      "-profile:v",
-      "high",
-
-      "-level",
-      "4.1",
-
-      "-pix_fmt",
-      "yuv420p",
-
-      "-r",
-      "30",
-
-      "-g",
-      "60",
-
-      "-keyint_min",
-      "60",
-
-      "-sc_threshold",
-      "0",
-
-      "-b:v",
-      "3500k",
-
-      "-maxrate",
-      "3500k",
-
-      "-bufsize",
-      "7000k",
-
-      /*
-       * Audio encoding.
-       */
-      "-c:a",
-      "aac",
-
-      "-b:a",
-      "128k",
-
-      "-ar",
-      "44100",
-
-      "-ac",
-      "2",
-
-      /*
-       * Output format.
-       */
-      "-f",
-      "flv",
-
-      rtmpDestination,
-    ];
-
-    console.log(
-      "STARTING YOUTUBE FFMPEG"
-    );
-
-    const ffmpegProcess =
-      spawn(
-        ffmpegPath,
-        args,
-        {
-          stdio: [
-            "ignore",
-            "pipe",
-            "pipe",
-          ],
-        }
       );
 
-    youtubeProcessManager
-      .setProcess(
-        userId,
-        ffmpegProcess
-      );
-
-    connection.youtubeLiveStatus =
-      "streaming";
-
-    await connection.save();
-
-    ffmpegProcess.stdout.on(
-      "data",
-      (data) => {
-        console.log(
-          "YOUTUBE FFMPEG:",
-          data.toString()
-        );
-      }
+  if (
+    !normalizedUrl ||
+    !normalizedKey
+  ) {
+    throw new Error(
+      "RTMP URL or stream key is missing."
     );
+  }
 
-    ffmpegProcess.stderr.on(
-      "data",
-      (data) => {
-        console.log(
-          "YOUTUBE FFMPEG:",
-          data.toString()
-        );
-      }
-    );
+  return (
+    `${normalizedUrl}/` +
+    `${normalizedKey}`
+  );
+};
 
-    ffmpegProcess.on(
-      "error",
-      async (error) => {
+const getSelectedStreamKeyFields = (
+  platforms
+) => {
+  return platforms
+    .map(
+      (
+        platform
+      ) =>
+        `+${
+          PLATFORM_CONFIG[
+            platform
+          ].streamKeyField
+        }`
+    )
+    .join(" ");
+};
+
+const deleteTemporaryFile = (
+  filePath
+) => {
+  if (!filePath) {
+    return;
+  }
+
+  fs.unlink(
+    filePath,
+    (
+      error
+    ) => {
+      if (
+        error &&
+        error.code !==
+          "ENOENT"
+      ) {
         console.error(
-          "YOUTUBE FFMPEG PROCESS ERROR:",
-          error
+          "DELETE TEMP VIDEO ERROR:",
+          error.message
         );
+      }
+    }
+  );
+};
 
-        youtubeProcessManager
-          .removeProcess(userId);
+/* =========================================================
+   UPDATE LIVE STATUS
+========================================================= */
 
-        await Connection.updateOne(
-          {
-            userId,
-            platform: "youtube",
-          },
-          {
-            $set: {
-              youtubeLiveStatus:
-                "failed",
-            },
-          }
-        ).catch(() => {});
+const updateConnectionStatus =
+  async ({
+    connectionId,
+    platform,
+    status,
+    startedAt,
+    stoppedAt,
+    errorMessage,
+  }) => {
+    const config =
+      PLATFORM_CONFIG[
+        platform
+      ];
+
+    if (!config) {
+      return;
+    }
+
+    const update = {
+      [config.liveStatusField]:
+        status,
+    };
+
+    if (startedAt) {
+      update.lastLiveStartedAt =
+        startedAt;
+    }
+
+    if (stoppedAt) {
+      update.lastLiveStoppedAt =
+        stoppedAt;
+    }
+
+    const metadataUpdate = {
+      [`metadata.live.${platform}.status`]:
+        status,
+
+      [`metadata.live.${platform}.updatedAt`]:
+        new Date(),
+    };
+
+    if (errorMessage) {
+      metadataUpdate[
+        `metadata.live.${platform}.error`
+      ] =
+        String(
+          errorMessage
+        ).slice(
+          0,
+          2000
+        );
+    } else {
+      metadataUpdate[
+        `metadata.live.${platform}.error`
+      ] = "";
+    }
+
+    await Connection.updateOne(
+      {
+        _id:
+          connectionId,
+      },
+      {
+        $set: {
+          ...update,
+          ...metadataUpdate,
+        },
       }
     );
+  };
 
-    ffmpegProcess.on(
-      "close",
-      async (code, signal) => {
-        console.log(
-          "YOUTUBE FFMPEG CLOSED:",
-          {
-            code,
-            signal,
-          }
-        );
+/* =========================================================
+   LOAD CONNECTIONS AND PRIVATE STREAM KEYS
+========================================================= */
 
-        youtubeProcessManager
-          .removeProcess(userId);
+const loadConnections =
+  async (
+    userId,
+    platforms
+  ) => {
+    const selectFields =
+      getSelectedStreamKeyFields(
+        platforms
+      );
 
-        await Connection.updateOne(
-          {
-            userId,
-            platform: "youtube",
+    const connections =
+      await Connection.find(
+        {
+          userId,
+
+          platform: {
+            $in:
+              platforms,
           },
-          {
-            $set: {
-              youtubeLiveStatus:
-                code === 0
-                  ? "complete"
-                  : "failed",
-            },
-          }
-        ).catch(() => {});
+
+          connected:
+            true,
+        }
+      ).select(
+        selectFields
+      );
+
+    return connections;
+  };
+
+/* =========================================================
+   VERIFY CONNECTION CREDENTIALS
+========================================================= */
+
+const prepareDestinations =
+  (
+    platforms,
+    connections
+  ) => {
+    const connectionMap =
+      new Map(
+        connections.map(
+          (
+            connection
+          ) => [
+            normalizePlatform(
+              connection.platform
+            ),
+            connection,
+          ]
+        )
+      );
+
+    return platforms.map(
+      (
+        platform
+      ) => {
+        const config =
+          PLATFORM_CONFIG[
+            platform
+          ];
+
+        const connection =
+          connectionMap.get(
+            platform
+          );
+
+        if (!connection) {
+          throw new Error(
+            `${config.name} is not connected.`
+          );
+        }
+
+        const rtmpUrl =
+          connection[
+            config.rtmpUrlField
+          ];
+
+        const streamKey =
+          connection[
+            config.streamKeyField
+          ];
+
+        if (
+          !rtmpUrl ||
+          !streamKey
+        ) {
+          throw new Error(
+            `${config.name} RTMP settings are incomplete.`
+          );
+        }
+
+        return {
+          platform,
+
+          config,
+
+          connection,
+
+          outputUrl:
+            buildDestinationUrl(
+              rtmpUrl,
+              streamKey
+            ),
+        };
       }
     );
+  };
+
+/* =========================================================
+   START MULTI-PLATFORM LIVE
+========================================================= */
+
+exports.startLive =
+  async ({
+    userId,
+    platforms,
+    input,
+    sourceType =
+      "file",
+    loop =
+      false,
+    videoBitrate =
+      4500,
+    audioBitrate =
+      128,
+    width =
+      1280,
+    height =
+      720,
+    fps =
+      30,
+    preset =
+      "veryfast",
+    temporaryFile =
+      false,
+  }) => {
+    if (!userId) {
+      throw new Error(
+        "User ID is required."
+      );
+    }
+
+    if (!input) {
+      throw new Error(
+        "Video input is required."
+      );
+    }
+
+    const normalizedPlatforms =
+      normalizePlatforms(
+        platforms
+      );
+
+    validatePlatforms(
+      normalizedPlatforms
+    );
+
+    const alreadyRunning =
+      normalizedPlatforms.filter(
+        (
+          platform
+        ) =>
+          ffmpegService.isStreaming(
+            userId,
+            platform
+          )
+      );
+
+    if (
+      alreadyRunning.length
+    ) {
+      throw new Error(
+        `Streams already running: ${alreadyRunning.join(
+          ", "
+        )}`
+      );
+    }
+
+    const connections =
+      await loadConnections(
+        userId,
+        normalizedPlatforms
+      );
+
+    const destinations =
+      prepareDestinations(
+        normalizedPlatforms,
+        connections
+      );
+
+    /*
+     * Mark all selected platforms as starting.
+     */
+    await Promise.all(
+      destinations.map(
+        (
+          destination
+        ) =>
+          updateConnectionStatus({
+            connectionId:
+              destination
+                .connection
+                ._id,
+
+            platform:
+              destination
+                .platform,
+
+            status:
+              destination
+                .platform ===
+                "youtube"
+                ? "streaming"
+                : "starting",
+
+            errorMessage:
+              "",
+          })
+      )
+    );
+
+    const started = [];
+    const failed = [];
+
+    /*
+     * One FFmpeg process is started per destination.
+     *
+     * This makes independent platform stopping possible.
+     */
+    for (
+      const destination
+      of destinations
+    ) {
+      try {
+        const result =
+          ffmpegService.startStream(
+            {
+              userId,
+
+              platform:
+                destination
+                  .platform,
+
+              input,
+
+              outputUrl:
+                destination
+                  .outputUrl,
+
+              sourceType,
+
+              loop,
+
+              videoBitrate,
+
+              audioBitrate,
+
+              width,
+
+              height,
+
+              fps,
+
+              preset,
+
+              onStarted:
+                async () => {
+                  await updateConnectionStatus(
+                    {
+                      connectionId:
+                        destination
+                          .connection
+                          ._id,
+
+                      platform:
+                        destination
+                          .platform,
+
+                      status:
+                        destination
+                          .platform ===
+                          "youtube"
+                          ? "streaming"
+                          : "streaming",
+
+                      startedAt:
+                        new Date(),
+
+                      errorMessage:
+                        "",
+                    }
+                  );
+                },
+
+              onError:
+                async (
+                  error
+                ) => {
+                  await updateConnectionStatus(
+                    {
+                      connectionId:
+                        destination
+                          .connection
+                          ._id,
+
+                      platform:
+                        destination
+                          .platform,
+
+                      status:
+                        "failed",
+
+                      stoppedAt:
+                        new Date(),
+
+                      errorMessage:
+                        error.message,
+                    }
+                  );
+                },
+
+              onExit:
+                async ({
+                  code,
+                  signal,
+                  stderr,
+                }) => {
+                  const wasSuccessful =
+                    code === 0 ||
+                    signal ===
+                      "SIGTERM";
+
+                  await updateConnectionStatus(
+                    {
+                      connectionId:
+                        destination
+                          .connection
+                          ._id,
+
+                      platform:
+                        destination
+                          .platform,
+
+                      status:
+                        wasSuccessful
+                          ? "complete"
+                          : "failed",
+
+                      stoppedAt:
+                        new Date(),
+
+                      errorMessage:
+                        wasSuccessful
+                          ? ""
+                          : stderr ||
+                            `FFmpeg exited with code ${code}.`,
+                    }
+                  );
+                },
+            }
+          );
+
+        started.push({
+          platform:
+            destination
+              .platform,
+
+          pid:
+            result.pid,
+
+          startedAt:
+            result.startedAt,
+        });
+      } catch (error) {
+        failed.push({
+          platform:
+            destination
+              .platform,
+
+          message:
+            error.message,
+        });
+
+        await updateConnectionStatus(
+          {
+            connectionId:
+              destination
+                .connection
+                ._id,
+
+            platform:
+              destination
+                .platform,
+
+            status:
+              "failed",
+
+            stoppedAt:
+              new Date(),
+
+            errorMessage:
+              error.message,
+          }
+        );
+      }
+    }
+
+    if (
+      !started.length
+    ) {
+      if (
+        temporaryFile
+      ) {
+        deleteTemporaryFile(
+          input
+        );
+      }
+
+      throw new Error(
+        failed
+          .map(
+            (
+              item
+            ) =>
+              `${item.platform}: ${item.message}`
+          )
+          .join("; ") ||
+          "No platform stream could be started."
+      );
+    }
 
     return {
-      started: true,
+      started,
 
-      processId:
-        ffmpegProcess.pid,
+      failed,
 
-      broadcastId:
-        connection
-          .youtubeBroadcastId,
+      input,
 
-      streamId:
-        connection
-          .youtubeStreamId,
-
-      watchUrl:
-        connection
-          .youtubeWatchUrl,
+      temporaryFile,
     };
   };
 
 /* =========================================================
-   STOP YOUTUBE RTMP
+   STOP ONE PLATFORM
 ========================================================= */
 
-exports.stopYouTubeRTMP =
-  async (userId) => {
-    const stopped =
-      youtubeProcessManager
-        .stopProcess(userId);
+exports.stopPlatform =
+  async ({
+    userId,
+    platform,
+  }) => {
+    const normalizedPlatform =
+      normalizePlatform(
+        platform
+      );
 
-    await Connection.updateOne(
-      {
+    if (
+      !SUPPORTED_PLATFORMS.includes(
+        normalizedPlatform
+      )
+    ) {
+      throw new Error(
+        "Unsupported platform."
+      );
+    }
+
+    const connection =
+      await Connection.findOne(
+        {
+          userId,
+
+          platform:
+            normalizedPlatform,
+        }
+      );
+
+    const result =
+      await ffmpegService.stopStream(
         userId,
-        platform: "youtube",
-      },
-      {
-        $set: {
-          youtubeLiveStatus:
+        normalizedPlatform
+      );
+
+    if (connection) {
+      await updateConnectionStatus(
+        {
+          connectionId:
+            connection._id,
+
+          platform:
+            normalizedPlatform,
+
+          status:
             "complete",
-        },
-      }
-    );
+
+          stoppedAt:
+            new Date(),
+
+          errorMessage:
+            "",
+        }
+      );
+    }
 
     return {
-      stopped,
+      platform:
+        normalizedPlatform,
+
+      ...result,
     };
   };
 
-const liveService =
-  new LiveService();
+/* =========================================================
+   STOP ALL PLATFORMS
+========================================================= */
 
-/*
- * Preserve the existing YouTube RTMP
- * functions without changing their logic.
- */
-liveService.startYouTubeRTMP =
-  exports.startYouTubeRTMP;
+exports.stopAll =
+  async (
+    userId
+  ) => {
+    const active =
+      ffmpegService.getUserProcesses(
+        userId
+      );
 
-liveService.stopYouTubeRTMP =
-  exports.stopYouTubeRTMP;
+    const results =
+      await ffmpegService.stopAllForUser(
+        userId
+      );
 
-module.exports =
-  liveService;
+    const activePlatforms =
+      active.map(
+        (
+          entry
+        ) =>
+          entry.platform
+      );
+
+    if (
+      activePlatforms.length
+    ) {
+      const connections =
+        await Connection.find(
+          {
+            userId,
+
+            platform: {
+              $in:
+                activePlatforms,
+            },
+          }
+        );
+
+      await Promise.all(
+        connections.map(
+          (
+            connection
+          ) =>
+            updateConnectionStatus(
+              {
+                connectionId:
+                  connection._id,
+
+                platform:
+                  normalizePlatform(
+                    connection
+                      .platform
+                  ),
+
+                status:
+                  "complete",
+
+                stoppedAt:
+                  new Date(),
+
+                errorMessage:
+                  "",
+              }
+            )
+        )
+      );
+    }
+
+    return results;
+  };
+
+/* =========================================================
+   GET LIVE STATUS
+========================================================= */
+
+exports.getLiveStatus =
+  async (
+    userId
+  ) => {
+    const connections =
+      await Connection.find(
+        {
+          userId,
+
+          platform: {
+            $in:
+              SUPPORTED_PLATFORMS,
+          },
+        }
+      )
+        .select(
+          [
+            "platform",
+            "connected",
+            "instagramLiveStatus",
+            "youtubeLiveStatus",
+            "rumbleLiveStatus",
+            "kickLiveStatus",
+            "twitchLiveStatus",
+            "twitterLiveStatus",
+            "lastLiveStartedAt",
+            "lastLiveStoppedAt",
+          ].join(" ")
+        )
+        .lean();
+
+    const runtime =
+      ffmpegService.getUserProcesses(
+        userId
+      );
+
+    const runtimeMap =
+      new Map(
+        runtime.map(
+          (
+            entry
+          ) => [
+            entry.platform,
+            entry,
+          ]
+        )
+      );
+
+    return connections.map(
+      (
+        connection
+      ) => {
+        const platform =
+          normalizePlatform(
+            connection.platform
+          );
+
+        const config =
+          PLATFORM_CONFIG[
+            platform
+          ];
+
+        const runtimeEntry =
+          runtimeMap.get(
+            platform
+          );
+
+        return {
+          platform,
+
+          connected:
+            connection.connected !==
+            false,
+
+          databaseStatus:
+            connection[
+              config
+                .liveStatusField
+            ] || "idle",
+
+          processActive:
+            Boolean(
+              runtimeEntry
+                ?.active
+            ),
+
+          pid:
+            runtimeEntry
+              ?.pid ||
+            null,
+
+          processStartedAt:
+            runtimeEntry
+              ?.startedAt ||
+            null,
+
+          lastLiveStartedAt:
+            connection
+              .lastLiveStartedAt ||
+            null,
+
+          lastLiveStoppedAt:
+            connection
+              .lastLiveStoppedAt ||
+            null,
+        };
+      }
+    );
+  };
+
+/* =========================================================
+   RESET STALE STATUS
+========================================================= */
+
+exports.resetStaleStatuses =
+  async () => {
+    const updates =
+      Object.entries(
+        PLATFORM_CONFIG
+      ).map(
+        ([
+          platform,
+          config,
+        ]) =>
+          Connection.updateMany(
+            {
+              platform,
+
+              [config.liveStatusField]: {
+                $in: [
+                  "starting",
+                  "streaming",
+                  "live",
+                  "ready",
+                ],
+              },
+            },
+            {
+              $set: {
+                [config.liveStatusField]:
+                  "idle",
+              },
+            }
+          )
+      );
+
+    await Promise.all(
+      updates
+    );
+  };
+
+exports.normalizePlatform =
+  normalizePlatform;
+
+exports.normalizePlatforms =
+  normalizePlatforms;
+
+exports.supportedPlatforms =
+  SUPPORTED_PLATFORMS;

@@ -22,6 +22,11 @@ const router =
 
 /* =========================================================
    SOCIAL OAUTH
+
+   Supported OAuth platforms:
+   - Instagram
+   - Facebook
+   - YouTube
 ========================================================= */
 
 router.get(
@@ -36,7 +41,7 @@ router.get(
 );
 
 /* =========================================================
-   SOCIAL CONNECTIONS
+   GET CONNECTIONS
 ========================================================= */
 
 router.get(
@@ -45,11 +50,61 @@ router.get(
   socialController.getConnections
 );
 
+/* =========================================================
+   INSTAGRAM RTMP
+
+   Instagram must first be connected using OAuth.
+========================================================= */
+
 router.patch(
   "/connections/instagram/rtmp",
   authMiddleware.protect,
   socialController.saveInstagramRtmp
 );
+
+/* =========================================================
+   OPEN MANUAL PLATFORM DASHBOARD
+
+   Examples:
+   GET /api/social/manual/rumble/open
+   GET /api/social/manual/kick/open
+   GET /api/social/manual/twitch/open
+   GET /api/social/manual/twitter/open
+========================================================= */
+
+router.get(
+  "/manual/:platform/open",
+  authMiddleware.protect,
+  socialController.openManualPlatform
+);
+
+/* =========================================================
+   SAVE MANUAL RTMP CONNECTION
+
+   Examples:
+   PATCH /api/social/connections/rumble/rtmp
+   PATCH /api/social/connections/kick/rtmp
+   PATCH /api/social/connections/twitch/rtmp
+   PATCH /api/social/connections/twitter/rtmp
+========================================================= */
+
+router.patch(
+  "/connections/:platform/rtmp",
+  authMiddleware.protect,
+  socialController.saveManualRtmp
+);
+
+/* =========================================================
+   DELETE CONNECTION
+
+   Examples:
+   DELETE /api/social/connections/instagram
+   DELETE /api/social/connections/youtube
+   DELETE /api/social/connections/rumble
+   DELETE /api/social/connections/kick
+   DELETE /api/social/connections/twitch
+   DELETE /api/social/connections/twitter
+========================================================= */
 
 router.delete(
   "/connections/:platform",
@@ -90,35 +145,5 @@ router.post(
   authMiddleware.protect,
   youtubeLiveController.endBroadcast
 );
-/* =========================================================
-   RUMBLE MANUAL RTMP CONNECTION
-========================================================= */
 
-/*
- * Opens the Rumble livestream management page.
- * This does not automatically obtain the stream key.
- */
-router.get(
-  "/rumble/open",
-  authMiddleware.protect,
-  socialController.openRumble
-);
-
-/*
- * Saves the user's Rumble RTMP URL and stream key.
- */
-router.patch(
-  "/connections/rumble/rtmp",
-  authMiddleware.protect,
-  socialController.saveRumbleRtmp
-);
-
-/*
- * Removes only the Rumble connection.
- */
-router.delete(
-  "/connections/rumble",
-  authMiddleware.protect,
-  socialController.deleteRumbleConnection
-);
 module.exports = router;

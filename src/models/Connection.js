@@ -42,6 +42,9 @@ const connectionSchema =
           "youtube",
           "tiktok",
           "rumble",
+          "kick",
+          "twitter",
+          "twitch",
         ],
 
         required:
@@ -53,36 +56,6 @@ const connectionSchema =
         trim:
           true,
       },
-      rumbleRtmpUrl: {
-  type: String,
-  trim: true,
-  default: "",
-},
-
-rumbleStreamKey: {
-  type: String,
-  trim: true,
-  default: "",
-  select: false,
-},
-
-rumbleChannelUrl: {
-  type: String,
-  trim: true,
-  default: "",
-},
-
-rumbleLiveStatus: {
-  type: String,
-  enum: [
-    "idle",
-    "starting",
-    "streaming",
-    "complete",
-    "failed",
-  ],
-  default: "idle",
-},
 
       connected: {
         type:
@@ -281,6 +254,22 @@ rumbleLiveStatus: {
           false,
       },
 
+      instagramLiveStatus: {
+        type:
+          String,
+
+        enum: [
+          "idle",
+          "starting",
+          "streaming",
+          "complete",
+          "failed",
+        ],
+
+        default:
+          "idle",
+      },
+
       /* =====================================================
          YOUTUBE CHANNEL
       ===================================================== */
@@ -396,6 +385,250 @@ rumbleLiveStatus: {
       },
 
       /* =====================================================
+         RUMBLE RTMP
+      ===================================================== */
+
+      rumbleRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      rumbleStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+
+        select:
+          false,
+      },
+
+      rumbleChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      rumbleLiveStatus: {
+        type:
+          String,
+
+        enum: [
+          "idle",
+          "starting",
+          "streaming",
+          "complete",
+          "failed",
+        ],
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         KICK RTMP
+      ===================================================== */
+
+      kickRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      kickStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+
+        select:
+          false,
+      },
+
+      kickChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      kickLiveStatus: {
+        type:
+          String,
+
+        enum: [
+          "idle",
+          "starting",
+          "streaming",
+          "complete",
+          "failed",
+        ],
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         TWITCH RTMP
+      ===================================================== */
+
+      twitchRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      twitchStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+
+        select:
+          false,
+      },
+
+      twitchChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      twitchLiveStatus: {
+        type:
+          String,
+
+        enum: [
+          "idle",
+          "starting",
+          "streaming",
+          "complete",
+          "failed",
+        ],
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         TWITTER / X RTMP
+      ===================================================== */
+
+      twitterRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      twitterStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+
+        select:
+          false,
+      },
+
+      twitterChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      twitterLiveStatus: {
+        type:
+          String,
+
+        enum: [
+          "idle",
+          "starting",
+          "streaming",
+          "complete",
+          "failed",
+        ],
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         LIVE TIMESTAMPS
+      ===================================================== */
+
+      lastLiveStartedAt: {
+        type:
+          Date,
+
+        default:
+          null,
+      },
+
+      lastLiveStoppedAt: {
+        type:
+          Date,
+
+        default:
+          null,
+      },
+
+      /* =====================================================
          ADDITIONAL PLATFORM DATA
       ===================================================== */
 
@@ -421,7 +654,7 @@ rumbleLiveStatus: {
   );
 
 /* =========================================================
-   INDEXES
+   UNIQUE USER + PLATFORM
 ========================================================= */
 
 connectionSchema.index(
@@ -439,6 +672,44 @@ connectionSchema.index(
 );
 
 /* =========================================================
+   REMOVE PRIVATE FIELDS
+========================================================= */
+
+const removePrivateFields =
+  (
+    returnedObject
+  ) => {
+    delete returnedObject
+      .accessToken;
+
+    delete returnedObject
+      .refreshToken;
+
+    delete returnedObject
+      .pageAccessToken;
+
+    delete returnedObject
+      .instagramStreamKey;
+
+    delete returnedObject
+      .youtubeStreamKey;
+
+    delete returnedObject
+      .rumbleStreamKey;
+
+    delete returnedObject
+      .kickStreamKey;
+
+    delete returnedObject
+      .twitchStreamKey;
+
+    delete returnedObject
+      .twitterStreamKey;
+
+    return returnedObject;
+  };
+
+/* =========================================================
    SAFE JSON OUTPUT
 ========================================================= */
 
@@ -450,22 +721,9 @@ connectionSchema.set(
         document,
         returnedObject
       ) => {
-        delete returnedObject
-          .accessToken;
-
-        delete returnedObject
-          .refreshToken;
-
-        delete returnedObject
-          .pageAccessToken;
-
-        delete returnedObject
-          .instagramStreamKey;
-
-        delete returnedObject
-          .youtubeStreamKey;
-
-        return returnedObject;
+        return removePrivateFields(
+          returnedObject
+        );
       },
   }
 );
@@ -478,22 +736,9 @@ connectionSchema.set(
         document,
         returnedObject
       ) => {
-        delete returnedObject
-          .accessToken;
-
-        delete returnedObject
-          .refreshToken;
-
-        delete returnedObject
-          .pageAccessToken;
-
-        delete returnedObject
-          .instagramStreamKey;
-
-        delete returnedObject
-          .youtubeStreamKey;
-
-        return returnedObject;
+        return removePrivateFields(
+          returnedObject
+        );
       },
   }
 );

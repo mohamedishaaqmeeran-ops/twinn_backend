@@ -2,105 +2,270 @@ const express = require(
   "express"
 );
 
+const multer = require(
+  "multer"
+);
+
+const fs = require(
+  "fs"
+);
+
+const path = require(
+  "path"
+);
+
 const liveController =
   require(
     "./live.controller"
   );
 
-const uploadVideo =
+const authMiddleware =
   require(
-    "../../config/cloudinaryVideo"
+    "../../middleware/auth.middleware"
   );
-
-const {
-  protect,
-} = require(
-  "../../middleware/auth.middleware"
-);
 
 const router =
   express.Router();
 
 /* =========================================================
-   VIDEO UPLOAD
+   UPLOAD DIRECTORY
 ========================================================= */
 
+const uploadDirectory =
+  path.join(
+    process.cwd(),
+    "uploads",
+    "live"
+  );
+
+if (
+  !fs.existsSync(
+    uploadDirectory
+  )
+) {
+  fs.mkdirSync(
+    uploadDirectory,
+    {
+      recursive:
+        true,
+    }
+  );
+}
+
+/* =========================================================
+   MULTER STORAGE
+========================================================= */
+
+const storage =
+  multer.diskStorage(
+    {
+      destination: (
+        req,
+        file,
+        callback
+      ) => {
+        callback(
+          null,
+          uploadDirectory
+        );
+      },
+
+      filename: (
+        req,
+        file,
+        callback
+      ) => {
+        const extension =
+          path.extname(
+            file.originalname
+          )
+            .toLowerCase()
+            .replace(
+              /[^a-z0-9.]/g,
+              ""
+            );
+
+        const safeExtension =
+          extension ||
+          ".mp4";
+
+        callback(
+          null,
+          `live-${Date.now()}-${Math.round(
+            Math.random() *
+              1e9
+          )}${safeExtension}`
+        );
+      },
+    }
+  );
+
+/* =========================================================
+   FILE FILTER
+========================================================= */
+
+const fileFilter = (
+  req,
+  file,
+  callback
+) => {
+  const allowedMimeTypes = [
+    "video/mp4",
+    "video/quicktime",
+    "video/webm",
+    "video/x-matroska",
+    "video/avi",
+    "application/octet-stream",
+  ];
+
+  if (
+    allowedMimeTypes.includes(
+      file.mimetype
+    )
+  ) {
+    return callback(
+      null,
+      true
+    );
+  }
+
+  return callback(
+    new Error(
+      "Only MP4, MOV, WebM, MKV or AVI video files are allowed."
+    )
+  );
+};
+
+const upload =
+  multer(
+    {
+      storage,
+
+      fileFilter,
+
+      limits: {
+        fileSize:
+          Number(
+            process.env
+              .MAX_LIVE_VIDEO_SIZE
+          ) ||
+          1024 *
+            1024 *
+            1024,
+      },
+    }
+  );
+
+/* =========================================================
+   MULTER ERROR WRAPPER
+========================================================= */
+
+const uploadVideo = (
+  req,
+  res,
+  next
+) => {
+  upload.single(
+    "video"
+  )(
+    req,
+    res,
+    (
+      error
+    ) => {
+      if (!error) {
+        return next();
+      }
+
+      if (
+        error instanceof
+        multer.MulterError
+      ) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
+
+            message:
+              error.code ===
+              "LIMIT_FILE_SIZE"
+                ? "The uploaded video is too large."
+                : error.message,
+          });
+      }
+
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            error.message ||
+            "Unable to upload video.",
+        });
+    }
+  );
+};
+
+/* =========================================================
+   START LIVE
+========================================================= */
+
+/*
+ * Multipart request:
+ *
+ * video: uploaded file
+ * platforms: ["youtube","kick"] or youtube,kick
+ * loop: true
+ * width: 1280
+ * height: 720
+ * fps: 30
+ * videoBitrate: 4500
+ *
+ * Or JSON request:
+ *
+ * {
+ *   "inputUrl": "https://example.com/video.mp4",
+ *   "platforms": ["youtube", "kick"]
+ * }
+ */
 router.post(
-  "/upload-video",
-  protect,
-  uploadVideo.single("video"),
-  liveController.uploadVideo
+  "/start",
+  authMiddleware.protect,
+  uploadVideo,
+  liveController.startLive
 );
 
 /* =========================================================
-   INSTAGRAM
+   STOP ONE PLATFORM
 ========================================================= */
 
 router.post(
-  "/start-instagram-rtmp",
-  protect,
-  liveController.startInstagramRTMP
-);
-
-router.post(
-  "/stop-instagram-rtmp",
-  protect,
-  liveController.stopInstagramRTMP
+  "/stop/:platform",
+  authMiddleware.protect,
+  liveController.stopPlatform
 );
 
 /* =========================================================
-   FACEBOOK
+   STOP ALL
 ========================================================= */
 
 router.post(
-  "/start-facebook",
-  protect,
-  liveController.startFacebookLive
-);
-
-router.post(
-  "/stop-facebook",
-  protect,
-  liveController.stopFacebookLive
+  "/stop",
+  authMiddleware.protect,
+  liveController.stopAll
 );
 
 /* =========================================================
-   YOUTUBE RTMP PROCESS
+   GET STATUS
 ========================================================= */
-
-router.post(
-  "/start-youtube-rtmp",
-  protect,
-  liveController.startYouTubeRTMP
-);
-
-router.post(
-  "/stop-youtube-rtmp",
-  protect,
-  liveController.stopYouTubeRTMP
-);
-
-
-
-/* =========================================================
-   RUMBLE RTMP PROCESS
-========================================================= */
-
-router.post(
-  "/start-rumble-rtmp",
-  protect,
-  liveController.startRumbleRTMP
-);
-
-router.post(
-  "/stop-rumble-rtmp",
-  protect,
-  liveController.stopRumbleRTMP
-);
 
 router.get(
-  "/rumble-status",
-  protect,
-  liveController.getRumbleStatus
+  "/status",
+  authMiddleware.protect,
+  liveController.getStatus
 );
+
 module.exports = router;

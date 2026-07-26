@@ -1,290 +1,531 @@
-const liveService = require("./live.service");
+const fs = require(
+  "fs"
+);
 
-exports.uploadVideo = async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        message: "Please select a video file.",
-      });
+const liveService =
+  require(
+    "./live.service"
+  );
+
+/* =========================================================
+   HELPERS
+========================================================= */
+
+const getUserId = (
+  req
+) => {
+  return (
+    req.user?.id ||
+    req.user?._id
+  );
+};
+
+const removeUploadedFile = (
+  filePath
+) => {
+  if (!filePath) {
+    return;
+  }
+
+  fs.unlink(
+    filePath,
+    (
+      error
+    ) => {
+      if (
+        error &&
+        error.code !==
+          "ENOENT"
+      ) {
+        console.error(
+          "REMOVE UPLOADED VIDEO ERROR:",
+          error.message
+        );
+      }
     }
-
-    return res.status(201).json({
-      success: true,
-      message: "Video uploaded successfully.",
-      data: {
-        videoUrl: req.file.path,
-        publicId: req.file.filename,
-        fileName: req.file.originalname,
-        size: req.file.size,
-      },
-    });
-  } catch (error) {
-    console.error("VIDEO UPLOAD ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Video upload failed.",
-    });
-  }
+  );
 };
 
-exports.startInstagramRTMP = async (req, res) => {
-  try {
-    const result = await liveService.startInstagramRTMP(req.user.id, req.body);
-
-    res.json({
-      success: true,
-      message: "Instagram live started",
-      data: result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+const parseBoolean = (
+  value,
+  fallback =
+    false
+) => {
+  if (
+    typeof value ===
+    "boolean"
+  ) {
+    return value;
   }
+
+  if (
+    value ===
+      "true" ||
+    value ===
+      "1"
+  ) {
+    return true;
+  }
+
+  if (
+    value ===
+      "false" ||
+    value ===
+      "0"
+  ) {
+    return false;
+  }
+
+  return fallback;
 };
 
-exports.stopInstagramRTMP = async (req, res) => {
-  try {
-    await liveService.stopLive(req.user.id, "instagram");
-
-    res.json({
-      success: true,
-      message: "Instagram live stopped",
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+const parsePlatforms = (
+  value
+) => {
+  if (
+    Array.isArray(value)
+  ) {
+    return value;
   }
-};
 
-exports.startFacebookLive = async (req, res) => {
-  try {
-    const result = await liveService.startFacebookLive(req.user.id, req.body);
-
-    res.json({
-      success: true,
-      message: "Facebook live started",
-      data: result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+  if (!value) {
+    return [];
   }
-};
 
-exports.stopFacebookLive = async (req, res) => {
+  /*
+   * Handles JSON string:
+   * '["youtube","kick"]'
+   */
   try {
-    await liveService.stopFacebookLive(req.user.id);
+    const parsed =
+      JSON.parse(
+        value
+      );
 
-    res.json({
-      success: true,
-      message: "Facebook live stopped",
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+    if (
+      Array.isArray(
+        parsed
+      )
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Use comma-separated fallback.
   }
+
+  return String(value)
+    .split(",")
+    .map(
+      (
+        platform
+      ) =>
+        platform.trim()
+    )
+    .filter(Boolean);
 };
 
 /* =========================================================
-   START YOUTUBE RTMP
+   START LIVE
 ========================================================= */
 
-exports.startYouTubeRTMP =
-  async (req, res) => {
+exports.startLive =
+  async (
+    req,
+    res
+  ) => {
+    const uploadedFilePath =
+      req.file?.path ||
+      "";
+
     try {
+      const userId =
+        getUserId(
+          req
+        );
+
+      if (!userId) {
+        removeUploadedFile(
+          uploadedFilePath
+        );
+
+        return res
+          .status(401)
+          .json({
+            success:
+              false,
+
+            message:
+              "Please log in.",
+          });
+      }
+
+      const platforms =
+        parsePlatforms(
+          req.body
+            .platforms
+        );
+
+      /*
+       * Input priority:
+       * 1. Uploaded video file
+       * 2. inputUrl
+       * 3. sourceUrl
+       */
+      const input =
+        uploadedFilePath ||
+        String(
+          req.body
+            .inputUrl ||
+          req.body
+            .sourceUrl ||
+          ""
+        ).trim();
+
+      if (!input) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
+
+            message:
+              "Upload a video or provide inputUrl.",
+          });
+      }
+
+      const sourceType =
+        uploadedFilePath
+          ? "file"
+          : String(
+              req.body
+                .sourceType ||
+              "url"
+            )
+              .trim()
+              .toLowerCase();
+
       const result =
-        await liveService
-          .startYouTubeRTMP(
-            req.user.id,
-            req.body
-          );
+        await liveService.startLive(
+          {
+            userId,
 
-      return res.json({
-        success: true,
+            platforms,
 
-        message:
-          "YouTube RTMP stream started.",
+            input,
 
-        data: result,
-      });
+            sourceType,
+
+            temporaryFile:
+              Boolean(
+                uploadedFilePath
+              ),
+
+            loop:
+              parseBoolean(
+                req.body.loop,
+                false
+              ),
+
+            videoBitrate:
+              req.body
+                .videoBitrate,
+
+            audioBitrate:
+              req.body
+                .audioBitrate,
+
+            width:
+              req.body.width,
+
+            height:
+              req.body.height,
+
+            fps:
+              req.body.fps,
+
+            preset:
+              req.body
+                .preset ||
+              "veryfast",
+          }
+        );
+
+      return res
+        .status(201)
+        .json({
+          success:
+            true,
+
+          message:
+            result.failed
+              .length
+              ? "Live stream started on some platforms."
+              : "Live stream started successfully.",
+
+          data: {
+            started:
+              result.started,
+
+            failed:
+              result.failed,
+          },
+        });
     } catch (error) {
       console.error(
-        "START YOUTUBE RTMP ERROR:",
+        "START LIVE ERROR:",
         error
       );
 
-      return res.status(400).json({
-        success: false,
+      /*
+       * Delete the upload only when FFmpeg did not start.
+       *
+       * When FFmpeg starts successfully, the file must remain
+       * available for the duration of the stream.
+       */
+      const status =
+        await liveService
+          .getLiveStatus(
+            getUserId(
+              req
+            )
+          )
+          .catch(
+            () => []
+          );
 
-        message:
-          error.message ||
-          "Unable to start YouTube RTMP stream.",
-      });
+      const hasActiveProcess =
+        status.some(
+          (
+            item
+          ) =>
+            item.processActive
+        );
+
+      if (
+        uploadedFilePath &&
+        !hasActiveProcess
+      ) {
+        removeUploadedFile(
+          uploadedFilePath
+        );
+      }
+
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
+
+          message:
+            error.message ||
+            "Unable to start live stream.",
+        });
     }
   };
 
 /* =========================================================
-   STOP YOUTUBE RTMP
+   STOP ONE PLATFORM
 ========================================================= */
 
-exports.stopYouTubeRTMP =
-  async (req, res) => {
-    try {
-      const result =
-        await liveService
-          .stopYouTubeRTMP(
-            req.user.id
-          );
-
-      return res.json({
-        success: true,
-
-        message:
-          "YouTube RTMP stream stopped.",
-
-        data: result,
-      });
-    } catch (error) {
-      console.error(
-        "STOP YOUTUBE RTMP ERROR:",
-        error
-      );
-
-      return res.status(400).json({
-        success: false,
-
-        message:
-          error.message ||
-          "Unable to stop YouTube RTMP stream.",
-      });
-    }
-  };
-
-
-
-  /* =========================================================
-   START RUMBLE RTMP
-========================================================= */
-
-exports.startRumbleRTMP =
+exports.stopPlatform =
   async (
     req,
     res
   ) => {
     try {
+      const userId =
+        getUserId(
+          req
+        );
+
+      if (!userId) {
+        return res
+          .status(401)
+          .json({
+            success:
+              false,
+
+            message:
+              "Please log in.",
+          });
+      }
+
+      const platform =
+        String(
+          req.params
+            .platform ||
+          req.body
+            .platform ||
+          ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (!platform) {
+        return res
+          .status(400)
+          .json({
+            success:
+              false,
+
+            message:
+              "Platform is required.",
+          });
+      }
+
       const result =
-        await liveService
-          .startRumbleRTMP(
-            req.user.id,
-            req.body
-          );
+        await liveService.stopPlatform(
+          {
+            userId,
+
+            platform,
+          }
+        );
 
       return res.json({
-        success: true,
+        success:
+          true,
 
         message:
-          "Rumble RTMP stream started.",
+          `${result.platform} stream stopped successfully.`,
 
-        data: result,
+        data:
+          result,
       });
     } catch (error) {
       console.error(
-        "START RUMBLE RTMP ERROR:",
+        "STOP PLATFORM ERROR:",
         error
       );
 
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(400)
+        .json({
+          success:
+            false,
 
-        message:
-          error.message ||
-          "Unable to start Rumble RTMP stream.",
-      });
+          message:
+            error.message ||
+            "Unable to stop platform stream.",
+        });
     }
   };
 
 /* =========================================================
-   STOP RUMBLE RTMP
+   STOP ALL PLATFORMS
 ========================================================= */
 
-exports.stopRumbleRTMP =
+exports.stopAll =
   async (
     req,
     res
   ) => {
     try {
+      const userId =
+        getUserId(
+          req
+        );
+
+      if (!userId) {
+        return res
+          .status(401)
+          .json({
+            success:
+              false,
+
+            message:
+              "Please log in.",
+          });
+      }
+
       const result =
-        await liveService
-          .stopRumbleRTMP(
-            req.user.id
-          );
+        await liveService.stopAll(
+          userId
+        );
 
       return res.json({
-        success: true,
+        success:
+          true,
 
         message:
-          "Rumble RTMP stream stopped.",
+          "All active streams were stopped.",
 
-        data: result,
+        data:
+          result,
       });
     } catch (error) {
       console.error(
-        "STOP RUMBLE RTMP ERROR:",
+        "STOP ALL LIVE ERROR:",
         error
       );
 
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(500)
+        .json({
+          success:
+            false,
 
-        message:
-          error.message ||
-          "Unable to stop Rumble RTMP stream.",
-      });
+          message:
+            error.message ||
+            "Unable to stop active streams.",
+        });
     }
   };
 
 /* =========================================================
-   GET RUMBLE STATUS
+   GET LIVE STATUS
 ========================================================= */
 
-exports.getRumbleStatus =
+exports.getStatus =
   async (
     req,
     res
   ) => {
     try {
-      const result =
-        await liveService
-          .getRumbleStatus(
-            req.user.id
-          );
+      const userId =
+        getUserId(
+          req
+        );
+
+      if (!userId) {
+        return res
+          .status(401)
+          .json({
+            success:
+              false,
+
+            message:
+              "Please log in.",
+          });
+      }
+
+      const status =
+        await liveService.getLiveStatus(
+          userId
+        );
 
       return res.json({
-        success: true,
-        data: result,
+        success:
+          true,
+
+        data:
+          status,
       });
     } catch (error) {
       console.error(
-        "GET RUMBLE STATUS ERROR:",
+        "GET LIVE STATUS ERROR:",
         error
       );
 
-      return res.status(400).json({
-        success: false,
+      return res
+        .status(500)
+        .json({
+          success:
+            false,
 
-        message:
-          error.message ||
-          "Unable to load Rumble status.",
-      });
+          message:
+            error.message ||
+            "Unable to load live status.",
+        });
     }
   };
