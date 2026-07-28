@@ -2119,48 +2119,90 @@ exports.startStream = ({
      PROCESS EXIT EVENT
   ======================================================= */
 
-  ffmpegProcess.once(
-    "exit",
-    async (
-      code,
-      signal
-    ) => {
-      removeActiveProcess(
-        key,
-        ffmpegProcess
+ /* =======================================================
+   PROCESS CLOSE EVENT
+
+   Use "close", not only "exit", because "close" runs
+   after stderr/stdout have fully closed.
+======================================================= */
+
+ffmpegProcess.once(
+  "close",
+  async (
+    code,
+    signal
+  ) => {
+    const finalStderr =
+      sanitizeFfmpegOutput(
+        entry.stderr
       );
 
-      if (
-        code !== 0 &&
-        signal !==
-          "SIGTERM" &&
-        signal !==
-          "SIGKILL"
-      ) {
-        const detectedFailure =
-          detectFfmpegFailure(
-            entry.stderr
-          );
+    console.log(
+      `========== FFMPEG CLOSE: ${normalizedPlatform} ==========`
+    );
 
-        const failureMessage =
-          detectedFailure ||
-          entry.errorMessage ||
-          `FFmpeg exited with code ${code}.`;
+    console.log(
+      "Exit code:",
+      code
+    );
 
-        await invokeError(
-          new Error(
-            failureMessage
-          )
+    console.log(
+      "Signal:",
+      signal
+    );
+
+    console.log(
+      "Status before close:",
+      entry.status
+    );
+
+    console.log(
+      "Final stderr:",
+      finalStderr ||
+        "No stderr received."
+    );
+
+    console.log(
+      "======================================================="
+    );
+
+    removeActiveProcess(
+      key,
+      ffmpegProcess
+    );
+
+    const manuallyStopped =
+      signal === "SIGTERM" ||
+      signal === "SIGKILL";
+
+    if (
+      code !== 0 &&
+      !manuallyStopped
+    ) {
+      const detectedFailure =
+        detectFfmpegFailure(
+          entry.stderr
         );
-      }
 
-      await invokeExit({
-        code,
+      const failureMessage =
+        detectedFailure ||
+        entry.errorMessage ||
+        finalStderr ||
+        `FFmpeg exited with code ${code}.`;
 
-        signal,
-      });
+      await invokeError(
+        new Error(
+          failureMessage
+        )
+      );
     }
-  );
+
+    await invokeExit({
+      code,
+      signal,
+    });
+  }
+);
 
   return {
     key,
