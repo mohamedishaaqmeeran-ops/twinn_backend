@@ -2038,13 +2038,12 @@ exports.startStream = ({
      STDERR EVENT
   ======================================================= */
 
-  ffmpegProcess.stderr.on(
-    "data",
-    (
-      chunk
-    ) => {
-      const rawMessage =
-        chunk.toString();
+ ffmpegProcess.stderr.on("data", (chunk) => {
+    const rawMessage = chunk.toString();
+
+    console.log("========== FFMPEG ==========");
+    console.log(rawMessage);
+    console.log("============================");
 
       entry.stderr =
         (
