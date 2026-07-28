@@ -298,7 +298,7 @@ exports.startLive = async (
         loop:
           parseBoolean(
             req.body?.loop,
-            false
+            true
           ),
 
         includeAudio:
@@ -317,46 +317,52 @@ exports.startLive = async (
           parseBoolean(
             req.body
               ?.rollbackOnFailure,
-            true
+            false
           ),
 
         videoBitrate:
           parseNumber(
             req.body
-              ?.videoBitrate
+              ?.videoBitrate,
+            2000
           ),
 
         audioBitrate:
           parseNumber(
             req.body
-              ?.audioBitrate
+              ?.audioBitrate,
+            96
           ),
 
         width:
           parseNumber(
-            req.body?.width
+            req.body?.width,
+            720
           ),
 
         height:
           parseNumber(
-            req.body?.height
+            req.body?.height,
+            1280
           ),
 
         fps:
           parseNumber(
-            req.body?.fps
+            req.body?.fps,
+            30
           ),
 
         keyframeInterval:
           parseNumber(
             req.body
-              ?.keyframeInterval
+              ?.keyframeInterval,
+            2
           ),
 
         preset:
           String(
             req.body?.preset ||
-              "veryfast"
+              "ultrafast"
           )
             .trim()
             .toLowerCase(),
@@ -603,7 +609,7 @@ exports.addPlatform = async (
         loop:
           parseBoolean(
             req.body?.loop,
-            false
+            true
           ),
 
         includeAudio:
@@ -621,34 +627,40 @@ exports.addPlatform = async (
         videoBitrate:
           parseNumber(
             req.body
-              ?.videoBitrate
+              ?.videoBitrate,
+            2000
           ),
 
         audioBitrate:
           parseNumber(
             req.body
-              ?.audioBitrate
+              ?.audioBitrate,
+            96
           ),
 
         width:
           parseNumber(
-            req.body?.width
+            req.body?.width,
+            720
           ),
 
         height:
           parseNumber(
-            req.body?.height
+            req.body?.height,
+            1280
           ),
 
         fps:
           parseNumber(
-            req.body?.fps
+            req.body?.fps,
+            30
           ),
 
         keyframeInterval:
           parseNumber(
             req.body
-              ?.keyframeInterval
+              ?.keyframeInterval,
+            2
           ),
 
         preset:

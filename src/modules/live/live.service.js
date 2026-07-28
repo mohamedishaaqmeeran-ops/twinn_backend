@@ -576,19 +576,26 @@ exports.startLive = async ({
   loop =
     true,
 
-  videoBitrate,
+  videoBitrate =
+    2000,
 
-  audioBitrate,
+  audioBitrate =
+    96,
 
-  width,
+  width =
+    720,
 
-  height,
+  height =
+    1280,
 
-  fps,
+  fps =
+    30,
 
-  keyframeInterval,
+  keyframeInterval =
+    2,
 
-  preset,
+  preset =
+    "ultrafast",
 
   includeAudio =
     true,

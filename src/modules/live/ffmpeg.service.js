@@ -1050,6 +1050,377 @@ const buildFfmpegArguments = ({
 };
 
 /* =========================================================
+   ESCAPE TEE OUTPUT URL
+========================================================= */
+
+const escapeTeeOutputUrl = (
+  value
+) => {
+  return String(value || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+};
+
+/* =========================================================
+   BUILD SINGLE-ENCODE MULTI-OUTPUT ARGUMENTS
+========================================================= */
+
+const buildMultiOutputArguments = ({
+  input,
+
+  destinations,
+
+  sourceType =
+    "file",
+
+  loop =
+    true,
+
+  videoBitrate =
+    2000,
+
+  audioBitrate =
+    96,
+
+  width =
+    720,
+
+  height =
+    1280,
+
+  fps =
+    30,
+
+  keyframeInterval =
+    2,
+
+  preset =
+    "ultrafast",
+
+  includeAudio =
+    true,
+
+  reconnect =
+    true,
+}) => {
+  const validatedInput =
+    validateInputSource(
+      input
+    );
+
+  if (
+    !Array.isArray(
+      destinations
+    ) ||
+    destinations.length ===
+      0
+  ) {
+    throw new Error(
+      "At least one streaming destination is required."
+    );
+  }
+
+  const safeDestinations =
+    destinations.map(
+      (destination) => ({
+        platform:
+          validatePlatform(
+            destination.platform
+          ),
+
+        outputUrl:
+          validateOutputUrl(
+            destination.outputUrl
+          ),
+      })
+    );
+
+  const safeVideoBitrate =
+    sanitizeInteger(
+      videoBitrate,
+      2000,
+      500,
+      6000
+    );
+
+  const safeAudioBitrate =
+    sanitizeInteger(
+      audioBitrate,
+      96,
+      64,
+      192
+    );
+
+  const safeWidth =
+    sanitizeInteger(
+      width,
+      720,
+      360,
+      1920
+    );
+
+  const safeHeight =
+    sanitizeInteger(
+      height,
+      1280,
+      360,
+      1920
+    );
+
+  const safeFps =
+    sanitizeInteger(
+      fps,
+      30,
+      15,
+      60
+    );
+
+  const safeKeyframeInterval =
+    sanitizeInteger(
+      keyframeInterval,
+      2,
+      1,
+      5
+    );
+
+  const safePreset =
+    sanitizePreset(
+      preset
+    );
+
+  const keyframeFrames =
+    safeFps *
+    safeKeyframeInterval;
+
+  const normalizedSourceType =
+    String(
+      sourceType || "file"
+    )
+      .trim()
+      .toLowerCase();
+
+  const args = [
+    "-hide_banner",
+
+    "-loglevel",
+    FFMPEG_LOG_LEVEL,
+
+    "-y",
+  ];
+
+  if (
+    normalizedSourceType !==
+      "live" &&
+    !isLiveSource(
+      validatedInput
+    )
+  ) {
+    args.push(
+      "-re"
+    );
+  }
+
+  if (
+    loop &&
+    normalizedSourceType !==
+      "live" &&
+    !isLiveSource(
+      validatedInput
+    )
+  ) {
+    args.push(
+      "-stream_loop",
+      "-1"
+    );
+  }
+
+  if (
+    reconnect &&
+    (
+      validatedInput.startsWith(
+        "http://"
+      ) ||
+      validatedInput.startsWith(
+        "https://"
+      )
+    )
+  ) {
+    args.push(
+      "-reconnect",
+      "1",
+
+      "-reconnect_streamed",
+      "1",
+
+      "-reconnect_at_eof",
+      "1",
+
+      "-reconnect_delay_max",
+      "5"
+    );
+  }
+
+  if (
+    isLiveSource(
+      validatedInput
+    )
+  ) {
+    args.push(
+      "-fflags",
+      "+genpts+discardcorrupt",
+
+      "-flags",
+      "low_delay"
+    );
+  }
+
+  args.push(
+    "-i",
+    validatedInput,
+
+    "-map_metadata",
+    "-1",
+
+    "-map_chapters",
+    "-1",
+
+    "-map",
+    "0:v:0"
+  );
+
+  if (includeAudio) {
+    args.push(
+      "-map",
+      "0:a:0?"
+    );
+  }
+
+  args.push(
+    "-c:v",
+    "libx264",
+
+    "-preset",
+    safePreset,
+
+    "-tune",
+    "zerolatency",
+
+    "-pix_fmt",
+    "yuv420p",
+
+    "-r",
+    String(
+      safeFps
+    ),
+
+    "-g",
+    String(
+      keyframeFrames
+    ),
+
+    "-keyint_min",
+    String(
+      keyframeFrames
+    ),
+
+    "-sc_threshold",
+    "0",
+
+    "-b:v",
+    `${safeVideoBitrate}k`,
+
+    "-maxrate",
+    `${safeVideoBitrate}k`,
+
+    "-bufsize",
+    `${safeVideoBitrate * 2}k`,
+
+    "-vf",
+    [
+      `scale=${safeWidth}:${safeHeight}:force_original_aspect_ratio=decrease`,
+      `pad=${safeWidth}:${safeHeight}:(ow-iw)/2:(oh-ih)/2`,
+      "setsar=1",
+    ].join(
+      ","
+    )
+  );
+
+  if (includeAudio) {
+    args.push(
+      "-c:a",
+      "aac",
+
+      "-b:a",
+      `${safeAudioBitrate}k`,
+
+      "-ar",
+      "44100",
+
+      "-ac",
+      "2"
+    );
+  } else {
+    args.push(
+      "-an"
+    );
+  }
+
+  const teeOutput =
+    safeDestinations
+      .map(
+        (destination) =>
+          `[f=flv:onfail=ignore]${escapeTeeOutputUrl(
+            destination.outputUrl
+          )}`
+      )
+      .join(
+        "|"
+      );
+
+  args.push(
+    "-progress",
+    "pipe:2",
+
+    "-f",
+    "tee",
+
+    teeOutput
+  );
+
+  return {
+    args,
+
+    destinations:
+      safeDestinations,
+
+    encoding: {
+      videoBitrate:
+        safeVideoBitrate,
+
+      audioBitrate:
+        safeAudioBitrate,
+
+      width:
+        safeWidth,
+
+      height:
+        safeHeight,
+
+      fps:
+        safeFps,
+
+      keyframeInterval:
+        safeKeyframeInterval,
+
+      preset:
+        safePreset,
+    },
+  };
+};
+
+/* =========================================================
    EXPORT PART 1 HELPERS
 ========================================================= */
 
@@ -1106,6 +1477,12 @@ exports.getPlatformDefaults =
 
 exports.buildFfmpegArguments =
   buildFfmpegArguments;
+
+exports.escapeTeeOutputUrl =
+  escapeTeeOutputUrl;
+
+exports.buildMultiOutputArguments =
+  buildMultiOutputArguments;
 
 
   /* =========================================================
@@ -1362,13 +1739,11 @@ const hasStreamingStarted = (
     normalizedMessage.includes(
       "frame="
     ) ||
-    (
-      normalizedMessage.includes(
-        "output #0"
-      ) &&
-      normalizedMessage.includes(
-        "flv"
-      )
+    normalizedMessage.includes(
+      "out_time_ms="
+    ) ||
+    normalizedMessage.includes(
+      "progress=continue"
     )
   );
 };
@@ -3029,13 +3404,62 @@ exports.stopAllForUser =
       );
     }
 
-    const userProcesses =
-      exports.getUserProcesses(
+    const normalizedUserId =
+      String(
         userId
       );
 
+    const matchingEntries =
+      Array.from(
+        activeProcesses.entries()
+      )
+        .filter(
+          ([
+            ,
+            entry,
+          ]) =>
+            entry.userId ===
+            normalizedUserId
+        );
+
+    const uniqueByProcess =
+      new Map();
+
+    for (
+      const [
+        key,
+        entry,
+      ]
+      of matchingEntries
+    ) {
+      const uniqueKey =
+        entry.process?.pid ||
+        key;
+
+      if (
+        !uniqueByProcess.has(
+          uniqueKey
+        ) ||
+        entry.platform ===
+          "multi"
+      ) {
+        uniqueByProcess.set(
+          uniqueKey,
+          {
+            key,
+            entry,
+          }
+        );
+      }
+    }
+
+    const uniqueEntries =
+      Array.from(
+        uniqueByProcess.values()
+      );
+
     if (
-      userProcesses.length ===
+      uniqueEntries.length ===
       0
     ) {
       return {
@@ -3043,9 +3467,7 @@ exports.stopAllForUser =
           true,
 
         userId:
-          String(
-            userId
-          ),
+          normalizedUserId,
 
         total:
           0,
@@ -3063,12 +3485,12 @@ exports.stopAllForUser =
 
     const settledResults =
       await Promise.allSettled(
-        userProcesses.map(
-          (
-            item
-          ) =>
+        uniqueEntries.map(
+          ({
+            key,
+          }) =>
             exports.stopProcessByKey(
-              item.key,
+              key,
               options
             )
         )
@@ -3081,7 +3503,7 @@ exports.stopAllForUser =
           index
         ) => {
           const processInfo =
-            userProcesses[
+            uniqueEntries[
               index
             ];
 
@@ -3099,12 +3521,11 @@ exports.stopAllForUser =
                 ),
 
               platform:
-                processInfo
-                  ?.platform,
+                processInfo.entry
+                  .platform,
 
               key:
-                processInfo
-                  ?.key,
+                processInfo.key,
 
               result:
                 result.value,
@@ -3119,12 +3540,11 @@ exports.stopAllForUser =
               false,
 
             platform:
-              processInfo
-                ?.platform,
+              processInfo.entry
+                .platform,
 
             key:
-              processInfo
-                ?.key,
+              processInfo.key,
 
             result:
               null,
@@ -3139,9 +3559,7 @@ exports.stopAllForUser =
 
     const stoppedCount =
       results.filter(
-        (
-          item
-        ) =>
+        (item) =>
           item.success
       ).length;
 
@@ -3151,9 +3569,7 @@ exports.stopAllForUser =
         results.length,
 
       userId:
-        String(
-          userId
-        ),
+        normalizedUserId,
 
       total:
         results.length,
@@ -3215,19 +3631,46 @@ exports.stopAllForSession =
               normalizedUserId &&
             entry.sessionId ===
               normalizedSessionId
-        )
-        .map(
-          ([
-            key,
-            entry,
-          ]) => ({
-            key,
-            entry,
-          })
         );
 
+    const uniqueByProcess =
+      new Map();
+
+    for (
+      const [
+        key,
+        entry,
+      ]
+      of matchingEntries
+    ) {
+      const uniqueKey =
+        entry.process?.pid ||
+        key;
+
+      if (
+        !uniqueByProcess.has(
+          uniqueKey
+        ) ||
+        entry.platform ===
+          "multi"
+      ) {
+        uniqueByProcess.set(
+          uniqueKey,
+          {
+            key,
+            entry,
+          }
+        );
+      }
+    }
+
+    const uniqueEntries =
+      Array.from(
+        uniqueByProcess.values()
+      );
+
     if (
-      matchingEntries.length ===
+      uniqueEntries.length ===
       0
     ) {
       return {
@@ -3256,7 +3699,7 @@ exports.stopAllForSession =
 
     const settledResults =
       await Promise.allSettled(
-        matchingEntries.map(
+        uniqueEntries.map(
           ({
             key,
           }) =>
@@ -3274,7 +3717,7 @@ exports.stopAllForSession =
           index
         ) => {
           const match =
-            matchingEntries[
+            uniqueEntries[
               index
             ];
 
@@ -3330,9 +3773,7 @@ exports.stopAllForSession =
 
     const stoppedCount =
       results.filter(
-        (
-          item
-        ) =>
+        (item) =>
           item.success
       ).length;
 
@@ -4639,24 +5080,31 @@ exports.startMultiStream =
       "file",
 
     loop =
-      false,
+      true,
 
     sessionId =
       generateSessionId(),
 
-    defaultVideoBitrate,
+    defaultVideoBitrate =
+      2000,
 
-    defaultAudioBitrate,
+    defaultAudioBitrate =
+      96,
 
-    defaultWidth,
+    defaultWidth =
+      720,
 
-    defaultHeight,
+    defaultHeight =
+      1280,
 
-    defaultFps,
+    defaultFps =
+      30,
 
-    defaultKeyframeInterval,
+    defaultKeyframeInterval =
+      2,
 
-    defaultPreset,
+    defaultPreset =
+      "ultrafast",
 
     includeAudio =
       true,
@@ -4665,7 +5113,7 @@ exports.startMultiStream =
       true,
 
     rollbackOnFailure =
-      true,
+      false,
 
     metadata =
       {},
@@ -4688,11 +5136,6 @@ exports.startMultiStream =
       );
     }
 
-    const validatedInput =
-      validateInputSource(
-        input
-      );
-
     const normalizedDestinations =
       normalizeDestinations(
         destinations
@@ -4703,27 +5146,20 @@ exports.startMultiStream =
         sessionId
       );
 
-    /*
-     * Prevent a platform from being started twice for
-     * the same user.
-     */
+    const platforms =
+      normalizedDestinations.map(
+        (destination) =>
+          destination.platform
+      );
+
     const alreadyRunning =
-      normalizedDestinations
-        .filter(
-          (
-            destination
-          ) =>
-            exports.isStreaming(
-              userId,
-              destination.platform
-            )
-        )
-        .map(
-          (
-            destination
-          ) =>
-            destination.platform
-        );
+      platforms.filter(
+        (platform) =>
+          exports.isStreaming(
+            userId,
+            platform
+          )
+      );
 
     if (
       alreadyRunning.length >
@@ -4736,189 +5172,74 @@ exports.startMultiStream =
       );
     }
 
-    const startedPlatforms = [];
-
-    const failedPlatforms = [];
-
-    const startPromises =
-      normalizedDestinations.map(
-        async (
-          destination
-        ) => {
-          try {
-            const result =
-              await exports
-                .startStreamAsync({
-                  userId,
-
-                  platform:
-                    destination.platform,
-
-                  input:
-                    validatedInput,
-
-                  outputUrl:
-                    destination.outputUrl,
-
-                  sourceType,
-
-                  loop,
-
-                  sessionId:
-                    normalizedSessionId,
-
-                  videoBitrate:
-                    destination.videoBitrate ??
-                    defaultVideoBitrate,
-
-                  audioBitrate:
-                    destination.audioBitrate ??
-                    defaultAudioBitrate,
-
-                  width:
-                    destination.width ??
-                    defaultWidth,
-
-                  height:
-                    destination.height ??
-                    defaultHeight,
-
-                  fps:
-                    destination.fps ??
-                    defaultFps,
-
-                  keyframeInterval:
-                    destination
-                      .keyframeInterval ??
-                    defaultKeyframeInterval,
-
-                  preset:
-                    destination.preset ??
-                    defaultPreset,
-
-                  includeAudio:
-                    destination.includeAudio ??
-                    includeAudio,
-
-                  reconnect,
-
-                  metadata: {
-                    ...metadata,
-
-                    ...destination.metadata,
-
-                    multiStream:
-                      true,
-
-                    sessionId:
-                      normalizedSessionId,
-                  },
-
-                  onStarted:
-                    async (
-                      payload
-                    ) => {
-                      await invokeCallbackSafely(
-                        onPlatformStarted,
-                        payload,
-                        "MULTI PLATFORM STARTED"
-                      );
-                    },
-
-                  onStreaming:
-                    async (
-                      payload
-                    ) => {
-                      await invokeCallbackSafely(
-                        onPlatformStreaming,
-                        payload,
-                        "MULTI PLATFORM STREAMING"
-                      );
-                    },
-
-                  onError:
-                    async (
-                      payload
-                    ) => {
-                      await invokeCallbackSafely(
-                        onPlatformError,
-                        payload,
-                        "MULTI PLATFORM ERROR"
-                      );
-                    },
-
-                  onExit:
-                    async (
-                      payload
-                    ) => {
-                      await invokeCallbackSafely(
-                        onPlatformExit,
-                        payload,
-                        "MULTI PLATFORM EXIT"
-                      );
-                    },
-                });
-
-            const platformResult = {
-              success:
-                true,
-
-              platform:
-                destination.platform,
-
-              result,
-            };
-
-            startedPlatforms.push(
-              platformResult
-            );
-
-            return platformResult;
-          } catch (error) {
-            const platformResult = {
-              success:
-                false,
-
-              platform:
-                destination.platform,
-
-              error:
-                getSafeErrorMessage(
-                  error
-                ),
-            };
-
-            failedPlatforms.push(
-              platformResult
-            );
-
-            return platformResult;
-          }
-        }
+    const processKey =
+      buildMultiProcessKey(
+        userId,
+        normalizedSessionId
       );
 
-    const results =
-      await Promise.all(
-        startPromises
+    const existingEntry =
+      activeProcesses.get(
+        processKey
       );
 
     if (
-      failedPlatforms.length >
-        0 &&
-      rollbackOnFailure
+      isProcessActive(
+        existingEntry
+      )
     ) {
-      const rollback =
-        await exports
-          .stopAllForSession(
-            userId,
-            normalizedSessionId,
-            {
-              forceAfterMs:
-                3000,
-            }
-          );
+      throw new Error(
+        "This multi-platform session is already running."
+      );
+    }
 
-      const sessionError = {
+    const {
+      args,
+
+      destinations:
+        safeDestinations,
+
+      encoding,
+    } =
+      buildMultiOutputArguments({
+        input,
+
+        destinations:
+          normalizedDestinations,
+
+        sourceType,
+
+        loop,
+
+        videoBitrate:
+          defaultVideoBitrate,
+
+        audioBitrate:
+          defaultAudioBitrate,
+
+        width:
+          defaultWidth,
+
+        height:
+          defaultHeight,
+
+        fps:
+          defaultFps,
+
+        keyframeInterval:
+          defaultKeyframeInterval,
+
+        preset:
+          defaultPreset,
+
+        includeAudio,
+
+        reconnect,
+      });
+
+    console.log(
+      "STARTING SHARED FFMPEG SESSION:",
+      {
         userId:
           String(
             userId
@@ -4927,88 +5248,738 @@ exports.startMultiStream =
         sessionId:
           normalizedSessionId,
 
-        message:
-          "One or more platforms failed to start. All started streams were rolled back.",
+        platforms,
 
-        started:
-          startedPlatforms,
+        destinationCount:
+          platforms.length,
 
-        failed:
-          failedPlatforms,
+        loop:
+          Boolean(
+            loop
+          ),
 
-        rollback,
-      };
+        encoding,
+      }
+    );
 
-      await invokeCallbackSafely(
-        onSessionError,
-        sessionError,
-        "MULTI SESSION ERROR"
+    const ffmpegProcess =
+      spawn(
+        FFMPEG_PATH,
+        args,
+        {
+          stdio: [
+            "ignore",
+            "ignore",
+            "pipe",
+          ],
+
+          windowsHide:
+            true,
+
+          env: {
+            ...process.env,
+          },
+        }
       );
 
-      const error =
-        new Error(
-          sessionError.message
-        );
+    const entry = {
+      key:
+        processKey,
 
-      error.details =
-        sessionError;
-
-      throw error;
-    }
-
-    const response = {
-      success:
-        failedPlatforms.length ===
-        0,
-
-      partialSuccess:
-        startedPlatforms.length >
-          0 &&
-        failedPlatforms.length >
-          0,
+      process:
+        ffmpegProcess,
 
       userId:
         String(
           userId
         ),
 
+      platform:
+        "multi",
+
+      platforms,
+
       sessionId:
         normalizedSessionId,
 
-      input:
-        validatedInput,
+      input,
 
       sourceType,
 
-      loop:
-        Boolean(
-          loop
-        ),
+      startedAt:
+        new Date(),
 
-      total:
-        normalizedDestinations.length,
+      connectedAt:
+        null,
 
-      started:
-        startedPlatforms.length,
+      stoppedAt:
+        null,
 
-      failed:
-        failedPlatforms.length,
+      status:
+        "starting",
 
-      destinations:
-        normalizedDestinations.map(
-          buildSafeDestinationInfo
-        ),
+      stderr:
+        "",
 
-      results,
+      errorMessage:
+        "",
+
+      metadata: {
+        ...metadata,
+
+        multiStream:
+          true,
+
+        sharedEncoder:
+          true,
+
+        rollbackOnFailure:
+          Boolean(
+            rollbackOnFailure
+          ),
+      },
     };
 
-    await invokeCallbackSafely(
-      onSessionStarted,
-      response,
-      "MULTI SESSION STARTED"
+    activeProcesses.set(
+      processKey,
+      entry
     );
 
-    return response;
+    for (
+      const platform
+      of platforms
+    ) {
+      const platformKey =
+        buildProcessKey(
+          userId,
+          platform
+        );
+
+      activeProcesses.set(
+        platformKey,
+        {
+          ...entry,
+
+          key:
+            platformKey,
+
+          platform,
+
+          parentKey:
+            processKey,
+
+          sharedProcess:
+            true,
+        }
+      );
+    }
+
+    let promiseSettled =
+      false;
+
+    let streamingStarted =
+      false;
+
+    let errorCalled =
+      false;
+
+    const connectionTimeoutMs =
+      Number(
+        process.env
+          .FFMPEG_CONNECTION_TIMEOUT_MS
+      ) ||
+      60000;
+
+    const cleanupEntries =
+      () => {
+        const currentParent =
+          activeProcesses.get(
+            processKey
+          );
+
+        if (
+          currentParent?.process ===
+          ffmpegProcess
+        ) {
+          activeProcesses.delete(
+            processKey
+          );
+        }
+
+        for (
+          const platform
+          of platforms
+        ) {
+          const platformKey =
+            buildProcessKey(
+              userId,
+              platform
+            );
+
+          const platformEntry =
+            activeProcesses.get(
+              platformKey
+            );
+
+          if (
+            platformEntry?.process ===
+            ffmpegProcess
+          ) {
+            activeProcesses.delete(
+              platformKey
+            );
+          }
+        }
+      };
+
+    const updateAliasStatuses =
+      (
+        status,
+        values =
+          {}
+      ) => {
+        entry.status =
+          status;
+
+        Object.assign(
+          entry,
+          values
+        );
+
+        for (
+          const platform
+          of platforms
+        ) {
+          const platformEntry =
+            activeProcesses.get(
+              buildProcessKey(
+                userId,
+                platform
+              )
+            );
+
+          if (
+            platformEntry?.process ===
+            ffmpegProcess
+          ) {
+            platformEntry.status =
+              status;
+
+            Object.assign(
+              platformEntry,
+              values
+            );
+          }
+        }
+      };
+
+    const invokeAllPlatformCallbacks =
+      async (
+        callback,
+        basePayload,
+        callbackName
+      ) => {
+        await Promise.allSettled(
+          platforms.map(
+            (platform) =>
+              invokeCallbackSafely(
+                callback,
+                {
+                  ...basePayload,
+
+                  key:
+                    buildProcessKey(
+                      userId,
+                      platform
+                    ),
+
+                  parentKey:
+                    processKey,
+
+                  pid:
+                    ffmpegProcess.pid,
+
+                  userId:
+                    String(
+                      userId
+                    ),
+
+                  platform,
+
+                  sessionId:
+                    normalizedSessionId,
+
+                  sharedProcess:
+                    true,
+                },
+                callbackName
+              )
+          )
+        );
+      };
+
+    return new Promise(
+      (
+        resolve,
+        reject
+      ) => {
+        const resolveOnce =
+          (
+            value
+          ) => {
+            if (
+              promiseSettled
+            ) {
+              return;
+            }
+
+            promiseSettled =
+              true;
+
+            clearTimeout(
+              timeout
+            );
+
+            resolve(
+              value
+            );
+          };
+
+        const rejectOnce =
+          (
+            error
+          ) => {
+            if (
+              promiseSettled
+            ) {
+              return;
+            }
+
+            promiseSettled =
+              true;
+
+            clearTimeout(
+              timeout
+            );
+
+            reject(
+              error instanceof Error
+                ? error
+                : new Error(
+                    String(
+                      error
+                    )
+                  )
+            );
+          };
+
+        const timeout =
+          setTimeout(
+            async () => {
+              if (
+                streamingStarted
+              ) {
+                return;
+              }
+
+              try {
+                ffmpegProcess.kill(
+                  "SIGTERM"
+                );
+              } catch (
+                stopError
+              ) {
+                console.error(
+                  "SHARED FFMPEG TIMEOUT STOP ERROR:",
+                  getSafeErrorMessage(
+                    stopError
+                  )
+                );
+              }
+
+              cleanupEntries();
+
+              const timeoutError =
+                new Error(
+                  `FFmpeg could not start the multi-platform stream within ${Math.round(
+                    connectionTimeoutMs /
+                    1000
+                  )} seconds.`
+                );
+
+              await invokeCallbackSafely(
+                onSessionError,
+                {
+                  userId:
+                    String(
+                      userId
+                    ),
+
+                  sessionId:
+                    normalizedSessionId,
+
+                  platforms,
+
+                  message:
+                    timeoutError.message,
+                },
+                "SHARED SESSION TIMEOUT"
+              );
+
+              rejectOnce(
+                timeoutError
+              );
+            },
+            connectionTimeoutMs
+          );
+
+        ffmpegProcess.once(
+          "spawn",
+          async () => {
+            updateAliasStatuses(
+              "started"
+            );
+
+            await invokeAllPlatformCallbacks(
+              onPlatformStarted,
+              {
+                startedAt:
+                  entry.startedAt,
+              },
+              "SHARED PLATFORM STARTED"
+            );
+          }
+        );
+
+        ffmpegProcess.stderr.on(
+          "data",
+          async (
+            chunk
+          ) => {
+            const rawMessage =
+              chunk.toString();
+
+            entry.stderr =
+              (
+                entry.stderr +
+                rawMessage
+              ).slice(
+                -30000
+              );
+
+            if (
+              FFMPEG_DEBUG
+            ) {
+              const safeMessage =
+                maskRtmpSecrets(
+                  rawMessage
+                ).trim();
+
+              if (
+                safeMessage
+              ) {
+                console.log(
+                  "[FFMPEG:MULTI]",
+                  safeMessage
+                );
+              }
+            }
+
+            const detectedFailure =
+              detectFfmpegFailure(
+                rawMessage
+              );
+
+            if (
+              detectedFailure
+            ) {
+              entry.errorMessage =
+                detectedFailure;
+            }
+
+            if (
+              !streamingStarted &&
+              hasStreamingStarted(
+                rawMessage
+              )
+            ) {
+              streamingStarted =
+                true;
+
+              const connectedAt =
+                new Date();
+
+              updateAliasStatuses(
+                "streaming",
+                {
+                  connectedAt,
+                }
+              );
+
+              await invokeAllPlatformCallbacks(
+                onPlatformStreaming,
+                {
+                  startedAt:
+                    entry.startedAt,
+
+                  connectedAt,
+                },
+                "SHARED PLATFORM STREAMING"
+              );
+
+              const response = {
+                success:
+                  true,
+
+                partialSuccess:
+                  false,
+
+                userId:
+                  String(
+                    userId
+                  ),
+
+                sessionId:
+                  normalizedSessionId,
+
+                input:
+                  validateInputSource(
+                    input
+                  ),
+
+                sourceType,
+
+                loop:
+                  Boolean(
+                    loop
+                  ),
+
+                total:
+                  platforms.length,
+
+                started:
+                  platforms.length,
+
+                failed:
+                  0,
+
+                pid:
+                  ffmpegProcess.pid,
+
+                sharedProcess:
+                  true,
+
+                platforms,
+
+                encoding,
+
+                destinations:
+                  normalizedDestinations.map(
+                    buildSafeDestinationInfo
+                  ),
+
+                results:
+                  platforms.map(
+                    (platform) => ({
+                      success:
+                        true,
+
+                      platform,
+
+                      result: {
+                        pid:
+                          ffmpegProcess.pid,
+
+                        status:
+                          "streaming",
+
+                        sharedProcess:
+                          true,
+                      },
+                    })
+                  ),
+              };
+
+              await invokeCallbackSafely(
+                onSessionStarted,
+                response,
+                "SHARED SESSION STARTED"
+              );
+
+              resolveOnce(
+                response
+              );
+            }
+          }
+        );
+
+        ffmpegProcess.once(
+          "error",
+          async (
+            processError
+          ) => {
+            cleanupEntries();
+
+            if (
+              !errorCalled
+            ) {
+              errorCalled =
+                true;
+
+              const safeError =
+                getSafeErrorMessage(
+                  processError
+                );
+
+              await invokeAllPlatformCallbacks(
+                onPlatformError,
+                {
+                  message:
+                    safeError,
+
+                  error:
+                    processError,
+                },
+                "SHARED PLATFORM ERROR"
+              );
+
+              await invokeCallbackSafely(
+                onSessionError,
+                {
+                  userId:
+                    String(
+                      userId
+                    ),
+
+                  sessionId:
+                    normalizedSessionId,
+
+                  platforms,
+
+                  message:
+                    safeError,
+                },
+                "SHARED SESSION ERROR"
+              );
+            }
+
+            rejectOnce(
+              processError
+            );
+          }
+        );
+
+        ffmpegProcess.once(
+          "close",
+          async (
+            code,
+            signal
+          ) => {
+            const stoppedAt =
+              new Date();
+
+            const manuallyStopped =
+              signal ===
+                "SIGTERM" ||
+              signal ===
+                "SIGKILL";
+
+            const cleanExit =
+              code === 0 ||
+              manuallyStopped;
+
+            updateAliasStatuses(
+              cleanExit
+                ? "stopped"
+                : "failed",
+              {
+                stoppedAt,
+              }
+            );
+
+            const safeStderr =
+              sanitizeFfmpegOutput(
+                entry.stderr
+              );
+
+            cleanupEntries();
+
+            await invokeAllPlatformCallbacks(
+              onPlatformExit,
+              {
+                code,
+
+                signal,
+
+                status:
+                  cleanExit
+                    ? "stopped"
+                    : "failed",
+
+                startedAt:
+                  entry.startedAt,
+
+                connectedAt:
+                  entry.connectedAt,
+
+                stoppedAt,
+
+                stderr:
+                  safeStderr,
+
+                errorMessage:
+                  cleanExit
+                    ? ""
+                    : entry.errorMessage ||
+                      safeStderr ||
+                      "FFmpeg stopped unexpectedly.",
+              },
+              "SHARED PLATFORM EXIT"
+            );
+
+            if (
+              !streamingStarted &&
+              !errorCalled
+            ) {
+              errorCalled =
+                true;
+
+              const startError =
+                new Error(
+                  safeStderr ||
+                  `FFmpeg exited before streaming. Code: ${
+                    code ??
+                    "unknown"
+                  }`
+                );
+
+              await invokeCallbackSafely(
+                onSessionError,
+                {
+                  userId:
+                    String(
+                      userId
+                    ),
+
+                  sessionId:
+                    normalizedSessionId,
+
+                  platforms,
+
+                  message:
+                    startError.message,
+                },
+                "SHARED SESSION CLOSE ERROR"
+              );
+
+              rejectOnce(
+                startError
+              );
+            }
+          }
+        );
+      }
+    );
   };
 
 /* =========================================================
@@ -5041,12 +6012,12 @@ exports.startFromConnections =
       "file",
 
     loop =
-      false,
+      true,
 
     sessionId,
 
     rollbackOnFailure =
-      true,
+      false,
 
     metadata =
       {},
