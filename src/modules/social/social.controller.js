@@ -11,6 +11,7 @@ const MANUAL_RTMP_PLATFORMS = [
   "facebook",
   "youtube",
   "linkedin",
+  "tiktok",
   "rumble",
   "kick",
   "twitch",
@@ -19,7 +20,7 @@ const MANUAL_RTMP_PLATFORMS = [
 
 const SUPPORTED_PLATFORMS = [
   ...MANUAL_RTMP_PLATFORMS,
-  "tiktok",
+  
 ];
 
 const MANUAL_PLATFORM_CONFIG = {
@@ -83,6 +84,25 @@ const MANUAL_PLATFORM_CONFIG = {
       "youtubeLiveStatus",
   },
 
+  tiktok: {
+  name:
+    "TikTok",
+
+  dashboardUrl:
+    "https://www.tiktok.com/studio/download",
+
+  rtmpUrlField:
+    "tiktokRtmpUrl",
+
+  streamKeyField:
+    "tiktokStreamKey",
+
+  channelUrlField:
+    "tiktokChannelUrl",
+
+  liveStatusField:
+    "tiktokLiveStatus",
+},
   linkedin: {
     name:
       "LinkedIn",
@@ -593,8 +613,8 @@ exports.saveManualRtmp =
             success:
               false,
 
-            message:
-              "Manual RTMP is supported for Instagram, Facebook, YouTube, LinkedIn, Rumble, Kick, Twitch and X/Twitter.",
+           message:
+  "Manual RTMP is supported for Instagram, Facebook, YouTube, TikTok, LinkedIn, Rumble, Kick, Twitch and X/Twitter.",
           });
       }
 
