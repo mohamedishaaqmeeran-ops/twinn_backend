@@ -15,19 +15,9 @@ const path = require(
   "path"
 );
 
-const ffmpegStatic =
-  require(
-    "ffmpeg-static"
-  );
-
-/* =========================================================
-   FFMPEG CONFIGURATION
-========================================================= */
-
 const FFMPEG_PATH =
   process.env.FFMPEG_PATH ||
-  ffmpegStatic ||
-  "ffmpeg";
+  "/usr/bin/ffmpeg";
 
 const FFMPEG_LOG_LEVEL =
   process.env.FFMPEG_LOG_LEVEL ||
@@ -972,14 +962,7 @@ const buildFfmpegArguments = ({
     "-preset",
     safePreset,
 
-    "-tune",
-    "zerolatency",
-
-    "-profile:v",
-    "high",
-
-    "-level",
-    "4.1",
+ 
 
     "-pix_fmt",
     "yuv420p",
@@ -1372,22 +1355,20 @@ const hasStreamingStarted = (
   message
 ) => {
   const normalizedMessage =
-    String(
-      message || ""
-    ).toLowerCase();
+    String(message || "")
+      .toLowerCase();
 
   return (
     normalizedMessage.includes(
       "frame="
     ) ||
-    normalizedMessage.includes(
-      "video:"
-    ) ||
-    normalizedMessage.includes(
-      "output #0"
-    ) ||
-    normalizedMessage.includes(
-      "press [q] to stop"
+    (
+      normalizedMessage.includes(
+        "output #0"
+      ) &&
+      normalizedMessage.includes(
+        "flv"
+      )
     )
   );
 };
@@ -2171,31 +2152,38 @@ ffmpegProcess.once(
       ffmpegProcess
     );
 
-    const manuallyStopped =
-      signal === "SIGTERM" ||
-      signal === "SIGKILL";
+   const manuallyStopped =
+  signal === "SIGTERM" ||
+  signal === "SIGKILL";
 
-    if (
-      code !== 0 &&
-      !manuallyStopped
-    ) {
-      const detectedFailure =
-        detectFfmpegFailure(
-          entry.stderr
-        );
+const crashed =
+  Boolean(signal) &&
+  !manuallyStopped;
 
-      const failureMessage =
-        detectedFailure ||
-        entry.errorMessage ||
-        finalStderr ||
-        `FFmpeg exited with code ${code}.`;
+if (
+  code !== 0 ||
+  crashed
+) {
+  const signalMessage =
+    signal === "SIGSEGV"
+      ? "FFmpeg crashed with SIGSEGV. The FFmpeg binary or one of its codecs/filters is incompatible with the deployment environment."
+      : signal
+        ? `FFmpeg terminated with signal ${signal}.`
+        : `FFmpeg exited with code ${code}.`;
 
-      await invokeError(
-        new Error(
-          failureMessage
-        )
-      );
-    }
+  const detectedFailure =
+    detectFfmpegFailure(
+      entry.stderr
+    );
+
+  await invokeError(
+    new Error(
+      detectedFailure ||
+      entry.errorMessage ||
+      signalMessage
+    )
+  );
+}
 
     await invokeExit({
       code,

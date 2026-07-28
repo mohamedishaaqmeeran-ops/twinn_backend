@@ -1,6 +1,10 @@
 require("dotenv")
   .config();
-
+const {
+  execFile,
+} = require(
+  "child_process"
+);
 const http =
   require("http");
 
@@ -40,6 +44,70 @@ const realtimeSocketServer =
     server
   );
 
+
+
+  /* =========================================================
+   VERIFY FFMPEG
+========================================================= */
+
+const verifyFfmpeg =
+  () => {
+    return new Promise(
+      (
+        resolve,
+        reject
+      ) => {
+        const ffmpegPath =
+          process.env
+            .FFMPEG_PATH ||
+          "/usr/bin/ffmpeg";
+
+        execFile(
+          ffmpegPath,
+          [
+            "-version",
+          ],
+          (
+            error,
+            stdout,
+            stderr
+          ) => {
+            if (error) {
+              console.error(
+                "FFMPEG CHECK ERROR:",
+                error.message
+              );
+
+              reject(
+                new Error(
+                  `FFmpeg is unavailable at ${ffmpegPath}`
+                )
+              );
+
+              return;
+            }
+
+            console.log(
+              `FFmpeg executable: ${ffmpegPath}`
+            );
+
+            console.log(
+              (
+                stdout ||
+                stderr ||
+                ""
+              )
+                .split("\n")
+                .slice(0, 3)
+                .join("\n")
+            );
+
+            resolve();
+          }
+        );
+      }
+    );
+  };
 /* =========================================================
    START SERVER
 ========================================================= */
@@ -64,7 +132,7 @@ const startServer =
           "Invalid database connection module."
         );
       }
-
+await verifyFfmpeg();
       server.listen(
         PORT,
         "0.0.0.0",
