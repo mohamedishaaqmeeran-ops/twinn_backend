@@ -1,3 +1,5 @@
+// modules/social/social.routes.js
+
 const express = require(
   "express"
 );
@@ -5,11 +7,6 @@ const express = require(
 const socialController =
   require(
     "./social.controller"
-  );
-
-const youtubeLiveController =
-  require(
-    "./youtubeLive.controller"
   );
 
 const authMiddleware =
@@ -21,17 +18,164 @@ const router =
   express.Router();
 
 /* =========================================================
-   SOCIAL OAUTH
+   AUTHENTICATION MIDDLEWARE
+========================================================= */
 
-   Supported OAuth platforms:
+const protect =
+  authMiddleware.protect;
+
+/* =========================================================
+   GET ALL CONNECTIONS
+
+   GET /api/social/connections
+========================================================= */
+
+router.get(
+  "/connections",
+  protect,
+  socialController.getConnections
+);
+
+/* =========================================================
+   GET SINGLE CONNECTION
+
+   Examples:
+   GET /api/social/connections/instagram
+   GET /api/social/connections/facebook
+   GET /api/social/connections/youtube
+   GET /api/social/connections/linkedin
+   GET /api/social/connections/rumble
+========================================================= */
+
+router.get(
+  "/connections/:platform",
+  protect,
+  socialController.getConnection
+);
+
+/* =========================================================
+   OPEN PLATFORM STREAM DASHBOARD
+
+   Examples:
+   GET /api/social/manual/instagram/open
+   GET /api/social/manual/facebook/open
+   GET /api/social/manual/youtube/open
+   GET /api/social/manual/linkedin/open
+   GET /api/social/manual/rumble/open
+   GET /api/social/manual/kick/open
+   GET /api/social/manual/twitch/open
+   GET /api/social/manual/twitter/open
+========================================================= */
+
+router.get(
+  "/manual/:platform/open",
+  protect,
+  socialController.openManualPlatform
+);
+
+/* =========================================================
+   SAVE OR UPDATE MANUAL RTMP CONNECTION
+
+   Supported platforms:
    - Instagram
    - Facebook
    - YouTube
+   - LinkedIn
+   - Rumble
+   - Kick
+   - Twitch
+   - Twitter / X
+
+   Examples:
+   PATCH /api/social/connections/instagram/rtmp
+   PATCH /api/social/connections/facebook/rtmp
+   PATCH /api/social/connections/youtube/rtmp
+   PATCH /api/social/connections/linkedin/rtmp
+   PATCH /api/social/connections/rumble/rtmp
+   PATCH /api/social/connections/kick/rtmp
+   PATCH /api/social/connections/twitch/rtmp
+   PATCH /api/social/connections/twitter/rtmp
+========================================================= */
+
+router.patch(
+  "/connections/:platform/rtmp",
+  protect,
+  socialController.saveManualRtmp
+);
+
+/* =========================================================
+   UPDATE CONNECTION PROFILE
+
+   Updates:
+   - username
+   - channelName
+   - channelUrl
+   - avatarUrl
+
+   Example:
+   PATCH /api/social/connections/youtube/profile
+========================================================= */
+
+router.patch(
+  "/connections/:platform/profile",
+  protect,
+  socialController.updateConnectionProfile
+);
+
+/* =========================================================
+   DELETE CONNECTION
+
+   Examples:
+   DELETE /api/social/connections/instagram
+   DELETE /api/social/connections/facebook
+   DELETE /api/social/connections/youtube
+   DELETE /api/social/connections/linkedin
+   DELETE /api/social/connections/rumble
+   DELETE /api/social/connections/kick
+   DELETE /api/social/connections/twitch
+   DELETE /api/social/connections/twitter
+========================================================= */
+
+router.delete(
+  "/connections/:platform",
+  protect,
+  socialController.deleteConnection
+);
+
+/* =========================================================
+   LEGACY INSTAGRAM RTMP ROUTE
+
+   This route is not strictly required because the generic
+   route above already handles Instagram.
+
+   Keep it only if the existing frontend calls:
+   PATCH /api/social/connections/instagram/rtmp
+========================================================= */
+
+/*
+ * Do not define another Instagram route here.
+ *
+ * The generic route:
+ *
+ * /connections/:platform/rtmp
+ *
+ * already handles:
+ *
+ * /connections/instagram/rtmp
+ */
+
+/* =========================================================
+   LEGACY OAUTH ROUTES
+
+   OAuth is disabled. These routes can remain temporarily
+   so an older frontend receives a useful error instead of 404.
+
+   Remove them after the frontend is fully changed to RTMP.
 ========================================================= */
 
 router.get(
   "/connect/:platform",
-  authMiddleware.protect,
+  protect,
   socialController.startOAuth
 );
 
@@ -41,109 +185,108 @@ router.get(
 );
 
 /* =========================================================
-   GET CONNECTIONS
+   HEALTH / SUPPORTED PLATFORMS
 ========================================================= */
 
 router.get(
-  "/connections",
-  authMiddleware.protect,
-  socialController.getConnections
+  "/platforms",
+  protect,
+  (
+    req,
+    res
+  ) => {
+    return res.json({
+      success:
+        true,
+
+      connectionType:
+        "manual-rtmp",
+
+      platforms: [
+        {
+          id:
+            "instagram",
+
+          name:
+            "Instagram",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "facebook",
+
+          name:
+            "Facebook",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "youtube",
+
+          name:
+            "YouTube",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "linkedin",
+
+          name:
+            "LinkedIn",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "rumble",
+
+          name:
+            "Rumble",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "kick",
+
+          name:
+            "Kick",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "twitch",
+
+          name:
+            "Twitch",
+
+          supportsManualRtmp:
+            true,
+        },
+        {
+          id:
+            "twitter",
+
+          name:
+            "Twitter / X",
+
+          supportsManualRtmp:
+            true,
+        },
+      ],
+    });
+  }
 );
 
-/* =========================================================
-   INSTAGRAM RTMP
-
-   Instagram must first be connected using OAuth.
-========================================================= */
-
-router.patch(
-  "/connections/instagram/rtmp",
-  authMiddleware.protect,
-  socialController.saveInstagramRtmp
-);
-
-/* =========================================================
-   OPEN MANUAL PLATFORM DASHBOARD
-
-   Examples:
-   GET /api/social/manual/rumble/open
-   GET /api/social/manual/kick/open
-   GET /api/social/manual/twitch/open
-   GET /api/social/manual/twitter/open
-========================================================= */
-
-router.get(
-  "/manual/:platform/open",
-  authMiddleware.protect,
-  socialController.openManualPlatform
-);
-
-/* =========================================================
-   SAVE MANUAL RTMP CONNECTION
-
-   Examples:
-   PATCH /api/social/connections/rumble/rtmp
-   PATCH /api/social/connections/kick/rtmp
-   PATCH /api/social/connections/twitch/rtmp
-   PATCH /api/social/connections/twitter/rtmp
-========================================================= */
-
-router.patch(
-  "/connections/:platform/rtmp",
-  authMiddleware.protect,
-  socialController.saveManualRtmp
-);
-
-/* =========================================================
-   DELETE CONNECTION
-
-   Examples:
-   DELETE /api/social/connections/instagram
-   DELETE /api/social/connections/youtube
-   DELETE /api/social/connections/rumble
-   DELETE /api/social/connections/kick
-   DELETE /api/social/connections/twitch
-   DELETE /api/social/connections/twitter
-========================================================= */
-
-router.delete(
-  "/connections/:platform",
-  authMiddleware.protect,
-  socialController.deleteConnection
-);
-
-/* =========================================================
-   YOUTUBE LIVE
-========================================================= */
-
-router.post(
-  "/youtube/live",
-  authMiddleware.protect,
-  youtubeLiveController.createLive
-);
-
-router.get(
-  "/youtube/live",
-  authMiddleware.protect,
-  youtubeLiveController.getCurrentLive
-);
-
-router.get(
-  "/youtube/live/status",
-  authMiddleware.protect,
-  youtubeLiveController.getStreamStatus
-);
-
-router.post(
-  "/youtube/live/start",
-  authMiddleware.protect,
-  youtubeLiveController.startBroadcast
-);
-
-router.post(
-  "/youtube/live/end",
-  authMiddleware.protect,
-  youtubeLiveController.endBroadcast
-);
-
-module.exports = router;
+module.exports =
+  router;

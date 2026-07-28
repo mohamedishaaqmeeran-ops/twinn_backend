@@ -1,81 +1,299 @@
 // modules/social/social.service.js
 
-const fetch = require(
-  "node-fetch"
+const Connection = require(
+  "../../models/Connection"
 );
-
-const {
-  google,
-} = require(
-  "googleapis"
-);
-
-const Connection =
-  require(
-    "../../models/Connection"
-  );
 
 /* =========================================================
-   CONFIGURATION
+   SUPPORTED MANUAL RTMP PLATFORMS
 ========================================================= */
 
-const REDIRECT_BASE =
-  process.env.REDIRECT_BASE ||
-  "https://twinn-backend.onrender.com";
-
-const META_VERSION =
-  process.env.META_API_VERSION ||
-  "v23.0";
-
-const SUPPORTED_OAUTH_PLATFORMS = [
+const MANUAL_RTMP_PLATFORMS = [
   "instagram",
   "facebook",
   "youtube",
+  "linkedin",
+  "rumble",
+  "kick",
+  "twitch",
+  "twitter",
+];
+
+/*
+ * TikTok can be added here later when the user
+ * has access to a TikTok RTMP URL and stream key.
+ */
+const SUPPORTED_PLATFORMS = [
+  ...MANUAL_RTMP_PLATFORMS,
+  "tiktok",
 ];
 
 /* =========================================================
-   HELPERS
+   PLATFORM CONFIGURATION
+========================================================= */
+
+const PLATFORM_CONFIG = {
+  instagram: {
+    name:
+      "Instagram",
+
+    dashboardUrl:
+      "https://www.instagram.com/",
+
+    rtmpUrlField:
+      "instagramRtmpUrl",
+
+    streamKeyField:
+      "instagramStreamKey",
+
+    channelUrlField:
+      "instagramChannelUrl",
+
+    liveStatusField:
+      "instagramLiveStatus",
+  },
+
+  facebook: {
+    name:
+      "Facebook",
+
+    dashboardUrl:
+      "https://www.facebook.com/live/producer",
+
+    rtmpUrlField:
+      "facebookRtmpUrl",
+
+    streamKeyField:
+      "facebookStreamKey",
+
+    channelUrlField:
+      "facebookChannelUrl",
+
+    liveStatusField:
+      "facebookLiveStatus",
+  },
+
+  youtube: {
+    name:
+      "YouTube",
+
+    dashboardUrl:
+      "https://studio.youtube.com/",
+
+    rtmpUrlField:
+      "youtubeRtmpUrl",
+
+    streamKeyField:
+      "youtubeStreamKey",
+
+    channelUrlField:
+      "youtubeChannelUrl",
+
+    liveStatusField:
+      "youtubeLiveStatus",
+  },
+
+  linkedin: {
+    name:
+      "LinkedIn",
+
+    dashboardUrl:
+      "https://www.linkedin.com/video/golive/manage/",
+
+    rtmpUrlField:
+      "linkedinRtmpUrl",
+
+    streamKeyField:
+      "linkedinStreamKey",
+
+    channelUrlField:
+      "linkedinChannelUrl",
+
+    liveStatusField:
+      "linkedinLiveStatus",
+  },
+
+  rumble: {
+    name:
+      "Rumble",
+
+    dashboardUrl:
+      "https://rumble.com/account/livestreams",
+
+    rtmpUrlField:
+      "rumbleRtmpUrl",
+
+    streamKeyField:
+      "rumbleStreamKey",
+
+    channelUrlField:
+      "rumbleChannelUrl",
+
+    liveStatusField:
+      "rumbleLiveStatus",
+  },
+
+  kick: {
+    name:
+      "Kick",
+
+    dashboardUrl:
+      "https://kick.com/dashboard/settings/stream",
+
+    rtmpUrlField:
+      "kickRtmpUrl",
+
+    streamKeyField:
+      "kickStreamKey",
+
+    channelUrlField:
+      "kickChannelUrl",
+
+    liveStatusField:
+      "kickLiveStatus",
+  },
+
+  twitch: {
+    name:
+      "Twitch",
+
+    dashboardUrl:
+      "https://dashboard.twitch.tv/settings/stream",
+
+    rtmpUrlField:
+      "twitchRtmpUrl",
+
+    streamKeyField:
+      "twitchStreamKey",
+
+    channelUrlField:
+      "twitchChannelUrl",
+
+    liveStatusField:
+      "twitchLiveStatus",
+  },
+
+  twitter: {
+    name:
+      "Twitter / X",
+
+    dashboardUrl:
+      "https://studio.x.com",
+
+    rtmpUrlField:
+      "twitterRtmpUrl",
+
+    streamKeyField:
+      "twitterStreamKey",
+
+    channelUrlField:
+      "twitterChannelUrl",
+
+    liveStatusField:
+      "twitterLiveStatus",
+  },
+
+  tiktok: {
+    name:
+      "TikTok",
+
+    dashboardUrl:
+      "https://www.tiktok.com/studio/download",
+
+    rtmpUrlField:
+      "tiktokRtmpUrl",
+
+    streamKeyField:
+      "tiktokStreamKey",
+
+    channelUrlField:
+      "tiktokChannelUrl",
+
+    liveStatusField:
+      "tiktokLiveStatus",
+  },
+};
+
+/* =========================================================
+   NORMALIZE PLATFORM
 ========================================================= */
 
 const normalizePlatform = (
   platform
 ) => {
-  return String(
-    platform || ""
-  )
-    .trim()
-    .toLowerCase();
+  const value =
+    String(
+      platform || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (
+    value === "x"
+  ) {
+    return "twitter";
+  }
+
+  if (
+    value === "twitter/x" ||
+    value === "x/twitter"
+  ) {
+    return "twitter";
+  }
+
+  return value;
 };
 
-const validateOAuthPlatform = (
-  platform
+/* =========================================================
+   VALIDATE PLATFORM
+========================================================= */
+
+const validatePlatform = (
+  platform,
+  {
+    allowTikTok =
+      true,
+  } = {}
 ) => {
   const normalizedPlatform =
     normalizePlatform(
       platform
     );
 
+  const supportedPlatforms =
+    allowTikTok
+      ? SUPPORTED_PLATFORMS
+      : MANUAL_RTMP_PLATFORMS;
+
   if (
-    !SUPPORTED_OAUTH_PLATFORMS.includes(
+    !supportedPlatforms.includes(
       normalizedPlatform
     )
   ) {
     throw new Error(
-      `Unsupported OAuth platform: ${
+      `Unsupported platform: ${
         normalizedPlatform ||
         "unknown"
-      }`
+      }.`
     );
   }
 
   return normalizedPlatform;
 };
 
+/* =========================================================
+   ENSURE VALUE
+========================================================= */
+
 const ensureValue = (
   value,
   message
 ) => {
-  if (!value) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
     throw new Error(
       message
     );
@@ -84,1434 +302,650 @@ const ensureValue = (
   return value;
 };
 
-const parseJsonResponse =
-  async (
-    response
-  ) => {
-    const data =
-      await response
-        .json()
-        .catch(
-          () => ({})
-        );
-
-    return data;
-  };
-
 /* =========================================================
-   META CONFIGURATION
+   VALIDATE RTMP URL
 ========================================================= */
 
-const getMetaAppId = (
-  platform
+const isValidRtmpUrl = (
+  value
 ) => {
-  if (
-    platform ===
-    "instagram"
-  ) {
-    return process.env
-      .INSTAGRAM_APP_ID;
-  }
-
-  if (
-    platform ===
-    "facebook"
-  ) {
-    return process.env
-      .FACEBOOK_APP_ID;
-  }
-
-  throw new Error(
-    `Unsupported Meta platform: ${platform}`
-  );
-};
-
-const getMetaAppSecret = (
-  platform
-) => {
-  if (
-    platform ===
-    "instagram"
-  ) {
-    return process.env
-      .INSTAGRAM_APP_SECRET;
-  }
-
-  if (
-    platform ===
-    "facebook"
-  ) {
-    return process.env
-      .FACEBOOK_APP_SECRET;
-  }
-
-  throw new Error(
-    `Unsupported Meta platform: ${platform}`
-  );
-};
-
-const getMetaRedirectUri = (
-  platform
-) => {
-  return (
-    `${REDIRECT_BASE}` +
-    `/api/social/callback/` +
-    `${platform}`
-  );
-};
-
-/* =========================================================
-   YOUTUBE OAUTH CLIENT
-========================================================= */
-
-const createYouTubeOAuthClient =
-  () => {
-    const clientId =
-      process.env
-        .GOOGLE_CLIENT_ID;
-
-    const clientSecret =
-      process.env
-        .GOOGLE_CLIENT_SECRET;
-
-    const redirectUri =
-      process.env
-        .YOUTUBE_REDIRECT_URI ||
-      `${REDIRECT_BASE}/api/social/callback/youtube`;
-
-    ensureValue(
-      clientId,
-      "GOOGLE_CLIENT_ID is missing."
-    );
-
-    ensureValue(
-      clientSecret,
-      "GOOGLE_CLIENT_SECRET is missing."
-    );
-
-    return new google.auth.OAuth2(
-      clientId,
-      clientSecret,
-      redirectUri
-    );
-  };
-
-/* =========================================================
-   BUILD META OAUTH URL
-========================================================= */
-
-const getMetaOAuthURL = (
-  platform,
-  state
-) => {
-  const appId =
-    getMetaAppId(
-      platform
-    );
-
-  ensureValue(
-    appId,
-    `${platform.toUpperCase()} App ID is missing.`
-  );
-
-  const redirectUri =
-    getMetaRedirectUri(
-      platform
-    );
-
-  const instagramScopes = [
-    "public_profile",
-    "pages_show_list",
-    "pages_read_engagement",
-    "business_management",
-    "instagram_basic",
-  ];
-
-  const facebookScopes = [
-    "public_profile",
-    "pages_show_list",
-    "pages_read_engagement",
-  ];
-
-  const scopes =
-    platform ===
-    "instagram"
-      ? instagramScopes
-      : facebookScopes;
+  const normalizedValue =
+    String(
+      value || ""
+    )
+      .trim()
+      .toLowerCase();
 
   return (
-    `https://www.facebook.com/` +
-    `${META_VERSION}/dialog/oauth` +
-    `?client_id=${encodeURIComponent(
-      appId
-    )}` +
-    `&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}` +
-    `&scope=${encodeURIComponent(
-      scopes.join(",")
-    )}` +
-    `&response_type=code` +
-    `&auth_type=rerequest` +
-    `&state=${encodeURIComponent(
-      state
-    )}`
+    normalizedValue.startsWith(
+      "rtmp://"
+    ) ||
+    normalizedValue.startsWith(
+      "rtmps://"
+    )
   );
 };
 
 /* =========================================================
-   BUILD YOUTUBE OAUTH URL
+   VALIDATE HTTP URL
 ========================================================= */
 
-const getYouTubeOAuthURL = (
-  state
+const isValidHttpUrl = (
+  value
 ) => {
-  const oauth2Client =
-    createYouTubeOAuthClient();
+  if (!value) {
+    return true;
+  }
 
-  return oauth2Client.generateAuthUrl(
-    {
-      access_type:
-        "offline",
+  const normalizedValue =
+    String(
+      value
+    )
+      .trim()
+      .toLowerCase();
 
-      prompt:
-        "consent",
-
-      include_granted_scopes:
-        true,
-
-      state,
-
-      scope: [
-        "https://www.googleapis.com/auth/youtube",
-        "https://www.googleapis.com/auth/youtube.force-ssl",
-      ],
-    }
+  return (
+    normalizedValue.startsWith(
+      "http://"
+    ) ||
+    normalizedValue.startsWith(
+      "https://"
+    )
   );
 };
 
 /* =========================================================
-   GET OAUTH URL
+   NORMALIZE RTMP URL
 ========================================================= */
 
-exports.getOAuthURL = (
-  platform,
-  state
+const normalizeRtmpUrl = (
+  value
+) => {
+  return String(
+    value || ""
+  )
+    .trim()
+    .replace(
+      /\/+$/,
+      ""
+    );
+};
+
+/* =========================================================
+   NORMALIZE STREAM KEY
+========================================================= */
+
+const normalizeStreamKey = (
+  value
+) => {
+  return String(
+    value || ""
+  )
+    .trim()
+    .replace(
+      /^\/+/,
+      ""
+    );
+};
+
+/* =========================================================
+   GET PLATFORM CONFIGURATION
+========================================================= */
+
+const getPlatformConfig = (
+  platform
 ) => {
   const normalizedPlatform =
-    validateOAuthPlatform(
+    validatePlatform(
       platform
     );
 
+  const config =
+    PLATFORM_CONFIG[
+      normalizedPlatform
+    ];
+
+  if (!config) {
+    throw new Error(
+      `Configuration is missing for ${normalizedPlatform}.`
+    );
+  }
+
+  return {
+    platform:
+      normalizedPlatform,
+
+    ...config,
+  };
+};
+
+/* =========================================================
+   BUILD COMPLETE RTMP DESTINATION
+========================================================= */
+
+const buildRtmpDestination = ({
+  rtmpUrl,
+  streamKey,
+}) => {
+  const normalizedRtmpUrl =
+    normalizeRtmpUrl(
+      rtmpUrl
+    );
+
+  const normalizedStreamKey =
+    normalizeStreamKey(
+      streamKey
+    );
+
   ensureValue(
-    state,
-    "OAuth state is required."
+    normalizedRtmpUrl,
+    "RTMP URL is required."
+  );
+
+  ensureValue(
+    normalizedStreamKey,
+    "Stream key is required."
   );
 
   if (
-    normalizedPlatform ===
-      "instagram" ||
-    normalizedPlatform ===
-      "facebook"
+    !isValidRtmpUrl(
+      normalizedRtmpUrl
+    )
   ) {
-    return getMetaOAuthURL(
-      normalizedPlatform,
-      state
+    throw new Error(
+      "RTMP URL must start with rtmp:// or rtmps://."
     );
   }
 
-  if (
-    normalizedPlatform ===
-    "youtube"
-  ) {
-    return getYouTubeOAuthURL(
-      state
-    );
-  }
-
-  throw new Error(
-    `Unsupported OAuth platform: ${normalizedPlatform}`
+  return (
+    `${normalizedRtmpUrl}/` +
+    `${normalizedStreamKey}`
   );
 };
 
 /* =========================================================
-   EXCHANGE META AUTHORIZATION CODE
+   BUILD SAFE CONNECTION OBJECT
 ========================================================= */
 
-const exchangeMetaCode =
-  async (
+const buildSafeConnection = (
+  connection
+) => {
+  if (!connection) {
+    return null;
+  }
+
+  const rawConnection =
+    typeof connection.toObject ===
+    "function"
+      ? connection.toObject()
+      : {
+          ...connection,
+        };
+
+  const platform =
+    normalizePlatform(
+      rawConnection.platform
+    );
+
+  const config =
+    PLATFORM_CONFIG[
+      platform
+    ];
+
+  const platformRtmpUrl =
+    config
+      ? rawConnection[
+          config.rtmpUrlField
+        ] ||
+        rawConnection.rtmpUrl ||
+        ""
+      : rawConnection.rtmpUrl ||
+        "";
+
+  const platformChannelUrl =
+    config
+      ? rawConnection[
+          config.channelUrlField
+        ] ||
+        rawConnection.channelUrl ||
+        ""
+      : rawConnection.channelUrl ||
+        "";
+
+  const platformLiveStatus =
+    config
+      ? rawConnection[
+          config.liveStatusField
+        ] ||
+        rawConnection.liveStatus ||
+        "idle"
+      : rawConnection.liveStatus ||
+        "idle";
+
+  const privateFields = [
+    "accessToken",
+    "refreshToken",
+    "pageAccessToken",
+    "streamKey",
+    "instagramStreamKey",
+    "facebookStreamKey",
+    "youtubeStreamKey",
+    "linkedinStreamKey",
+    "tiktokStreamKey",
+    "rumbleStreamKey",
+    "kickStreamKey",
+    "twitchStreamKey",
+    "twitterStreamKey",
+  ];
+
+  privateFields.forEach(
+    (
+      field
+    ) => {
+      delete rawConnection[
+        field
+      ];
+    }
+  );
+
+  return {
+    ...rawConnection,
+
     platform,
-    code
-  ) => {
-    const appId =
-      getMetaAppId(
-        platform
-      );
 
-    const appSecret =
-      getMetaAppSecret(
-        platform
-      );
+    platformName:
+      config?.name ||
+      platform,
 
-    ensureValue(
-      appId,
-      `${platform.toUpperCase()} App ID is missing.`
-    );
+    connected:
+      Boolean(
+        rawConnection.connected
+      ),
 
-    ensureValue(
-      appSecret,
-      `${platform.toUpperCase()} App Secret is missing.`
-    );
+    connectionType:
+      rawConnection.connectionType ||
+      rawConnection.metadata
+        ?.connectionType ||
+      "manual-rtmp",
 
-    ensureValue(
-      code,
-      "Meta authorization code is missing."
-    );
+    username:
+      rawConnection.username ||
+      rawConnection.platformUsername ||
+      "",
 
-    const redirectUri =
-      getMetaRedirectUri(
-        platform
-      );
+    channelName:
+      rawConnection.channelName ||
+      rawConnection.name ||
+      config?.name ||
+      platform,
 
-    const tokenUrl =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/oauth/access_token` +
-      `?client_id=${encodeURIComponent(
-        appId
-      )}` +
-      `&client_secret=${encodeURIComponent(
-        appSecret
-      )}` +
-      `&redirect_uri=${encodeURIComponent(
-        redirectUri
-      )}` +
-      `&code=${encodeURIComponent(
-        code
-      )}`;
+    channelUrl:
+      platformChannelUrl,
 
-    const response =
-      await fetch(
-        tokenUrl
-      );
+    avatarUrl:
+      rawConnection.avatarUrl ||
+      rawConnection.profilePictureUrl ||
+      "",
 
-    const data =
-      await parseJsonResponse(
-        response
-      );
+    profilePictureUrl:
+      rawConnection.profilePictureUrl ||
+      rawConnection.avatarUrl ||
+      "",
 
-    if (
-      !response.ok ||
-      !data.access_token
-    ) {
-      throw new Error(
-        data.error?.message ||
-        "Meta access token exchange failed."
-      );
-    }
+    rtmpConfigured:
+      Boolean(
+        platformRtmpUrl
+      ),
 
-    return data;
+    liveStatus:
+      platformLiveStatus,
+
+    dashboardUrl:
+      config?.dashboardUrl ||
+      "",
   };
+};
 
 /* =========================================================
-   EXCHANGE SHORT-LIVED META TOKEN
+   GET PLATFORM DASHBOARD
 ========================================================= */
 
-const exchangeLongLivedMetaToken =
-  async (
-    platform,
-    shortLivedToken
-  ) => {
-    const appId =
-      getMetaAppId(
-        platform
-      );
+exports.getPlatformDashboard = (
+  platform
+) => {
+  const config =
+    getPlatformConfig(
+      platform
+    );
 
-    const appSecret =
-      getMetaAppSecret(
-        platform
-      );
+  return {
+    platform:
+      config.platform,
 
-    if (
-      !appId ||
-      !appSecret ||
-      !shortLivedToken
-    ) {
-      return {
-        access_token:
-          shortLivedToken,
+    name:
+      config.name,
 
-        expires_in:
-          null,
-      };
-    }
-
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/oauth/access_token` +
-      `?grant_type=fb_exchange_token` +
-      `&client_id=${encodeURIComponent(
-        appId
-      )}` +
-      `&client_secret=${encodeURIComponent(
-        appSecret
-      )}` +
-      `&fb_exchange_token=${encodeURIComponent(
-        shortLivedToken
-      )}`;
-
-    const response =
-      await fetch(
-        url
-      );
-
-    const data =
-      await parseJsonResponse(
-        response
-      );
-
-    if (
-      !response.ok ||
-      !data.access_token
-    ) {
-      console.error(
-        "LONG-LIVED META TOKEN ERROR:",
-        data.error?.message ||
-        data
-      );
-
-      return {
-        access_token:
-          shortLivedToken,
-
-        expires_in:
-          null,
-      };
-    }
-
-    return data;
+    dashboardUrl:
+      config.dashboardUrl,
   };
+};
 
 /* =========================================================
-   FETCH FACEBOOK USER PROFILE
+   LEGACY OAUTH METHOD
 ========================================================= */
 
-const fetchFacebookUser =
-  async (
-    accessToken
-  ) => {
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/me` +
-      `?fields=id,name,picture` +
-      `&access_token=${encodeURIComponent(
-        accessToken
-      )}`;
+/*
+ * OAuth has been disabled for all platforms.
+ * Keep this method temporarily so old controllers do not
+ * crash if they still call socialService.getOAuthURL().
+ */
+exports.getOAuthURL = (
+  platform
+) => {
+  const config =
+    getPlatformConfig(
+      platform
+    );
 
-    const response =
-      await fetch(
-        url
-      );
-
-    const data =
-      await parseJsonResponse(
-        response
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-        "Unable to fetch Facebook profile."
-      );
-    }
-
-    return data;
-  };
+  throw new Error(
+    `${config.name} OAuth is disabled. Configure the platform using its RTMP URL and stream key.`
+  );
+};
 
 /* =========================================================
-   FETCH FACEBOOK PAGES
-========================================================= */
-
-const fetchFacebookPages =
-  async (
-    accessToken,
-    includeInstagram =
-      false
-  ) => {
-    const fields =
-      includeInstagram
-        ? [
-            "id",
-            "name",
-            "picture",
-            "access_token",
-            "instagram_business_account{id,username,name,profile_picture_url}",
-          ].join(",")
-        : [
-            "id",
-            "name",
-            "picture",
-            "access_token",
-          ].join(",");
-
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/me/accounts` +
-      `?fields=${encodeURIComponent(
-        fields
-      )}` +
-      `&access_token=${encodeURIComponent(
-        accessToken
-      )}`;
-
-    const response =
-      await fetch(
-        url
-      );
-
-    const data =
-      await parseJsonResponse(
-        response
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        data.error?.message ||
-        "Unable to fetch Facebook Pages."
-      );
-    }
-
-    return Array.isArray(
-      data.data
-    )
-      ? data.data
-      : [];
-  };
-
-/* =========================================================
-   FETCH INSTAGRAM PROFILE
-========================================================= */
-
-const fetchInstagramProfile =
-  async ({
-    instagramAccountId,
-    pageAccessToken,
-  }) => {
-    ensureValue(
-      instagramAccountId,
-      "Instagram account ID is missing."
-    );
-
-    ensureValue(
-      pageAccessToken,
-      "Facebook Page access token is missing."
-    );
-
-    const fields = [
-      "id",
-      "username",
-      "name",
-      "profile_picture_url",
-    ].join(",");
-
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/` +
-      `${instagramAccountId}` +
-      `?fields=${encodeURIComponent(
-        fields
-      )}` +
-      `&access_token=${encodeURIComponent(
-        pageAccessToken
-      )}`;
-
-    const response =
-      await fetch(
-        url
-      );
-
-    const data =
-      await parseJsonResponse(
-        response
-      );
-
-    if (
-      !response.ok ||
-      data.error
-    ) {
-      throw new Error(
-        data.error?.message ||
-        "Unable to fetch Instagram profile."
-      );
-    }
-
-    return data;
-  };
-
-/* =========================================================
-   HANDLE FACEBOOK CALLBACK
-========================================================= */
-
-const handleFacebookCallback =
-  async (
-    code,
-    userId
-  ) => {
-    const tokenData =
-      await exchangeMetaCode(
-        "facebook",
-        code
-      );
-
-    const longLivedTokenData =
-      await exchangeLongLivedMetaToken(
-        "facebook",
-        tokenData.access_token
-      );
-
-    const accessToken =
-      longLivedTokenData
-        .access_token ||
-      tokenData.access_token;
-
-    const [
-      profile,
-      pages,
-    ] =
-      await Promise.all([
-        fetchFacebookUser(
-          accessToken
-        ).catch(
-          () => null
-        ),
-
-        fetchFacebookPages(
-          accessToken,
-          false
-        ),
-      ]);
-
-    const page =
-      pages[0];
-
-    if (!page) {
-      throw new Error(
-        "No Facebook Page was found. Create a Facebook Page or grant Twinn permission to manage one."
-      );
-    }
-
-    if (
-      !page.access_token
-    ) {
-      throw new Error(
-        "Facebook Page access token was not returned."
-      );
-    }
-
-    const pageAvatar =
-      page.picture?.data
-        ?.url ||
-      profile?.picture
-        ?.data?.url ||
-      "";
-
-    const expiryDate =
-      longLivedTokenData
-        .expires_in
-        ? new Date(
-            Date.now() +
-              Number(
-                longLivedTokenData
-                  .expires_in
-              ) *
-                1000
-          )
-        : null;
-
-    return Connection.findOneAndUpdate(
-      {
-        userId,
-
-        platform:
-          "facebook",
-      },
-      {
-        $set: {
-          userId,
-
-          platform:
-            "facebook",
-
-          platformUserId:
-            page.id,
-
-          platformUsername:
-            page.name ||
-            "",
-
-          username:
-            page.name ||
-            "",
-
-          name:
-            page.name ||
-            "Facebook Page",
-
-          avatarUrl:
-            pageAvatar,
-
-          profilePictureUrl:
-            pageAvatar,
-
-          pageId:
-            page.id,
-
-          pageName:
-            page.name ||
-            "Facebook Page",
-
-          pageAccessToken:
-            page.access_token,
-
-          accessToken,
-
-          refreshToken:
-            "",
-
-          tokenExpiryDate:
-            expiryDate,
-
-          connected:
-            true,
-
-          metadata: {
-            connectionType:
-              "oauth",
-
-            facebookUserId:
-              profile?.id ||
-              "",
-
-            facebookUserName:
-              profile?.name ||
-              "",
-
-            tokenType:
-              longLivedTokenData
-                .token_type ||
-              tokenData.token_type ||
-              "bearer",
-
-            tokenExpiresIn:
-              longLivedTokenData
-                .expires_in ||
-              tokenData.expires_in ||
-              null,
-
-            connectedAt:
-              new Date(),
-          },
-        },
-      },
-      {
-        upsert:
-          true,
-
-        new:
-          true,
-
-        runValidators:
-          true,
-
-        setDefaultsOnInsert:
-          true,
-      }
-    );
-  };
-
-/* =========================================================
-   HANDLE INSTAGRAM CALLBACK
-========================================================= */
-
-const handleInstagramCallback =
-  async (
-    code,
-    userId
-  ) => {
-    const tokenData =
-      await exchangeMetaCode(
-        "instagram",
-        code
-      );
-
-    const longLivedTokenData =
-      await exchangeLongLivedMetaToken(
-        "instagram",
-        tokenData.access_token
-      );
-
-    const accessToken =
-      longLivedTokenData
-        .access_token ||
-      tokenData.access_token;
-
-    const pages =
-      await fetchFacebookPages(
-        accessToken,
-        true
-      );
-
-    if (!pages.length) {
-      throw new Error(
-        "No Facebook Page was found for this account."
-      );
-    }
-
-    const pageWithInstagram =
-      pages.find(
-        (
-          page
-        ) =>
-          Boolean(
-            page
-              .instagram_business_account
-              ?.id
-          ) &&
-          Boolean(
-            page.access_token
-          )
-      );
-
-    if (
-      !pageWithInstagram
-    ) {
-      throw new Error(
-        "No Instagram professional account linked to a manageable Facebook Page was found."
-      );
-    }
-
-    const pageAccessToken =
-      pageWithInstagram
-        .access_token;
-
-    const embeddedInstagram =
-      pageWithInstagram
-        .instagram_business_account;
-
-    const instagramAccountId =
-      embeddedInstagram?.id;
-
-    ensureValue(
-      instagramAccountId,
-      "Instagram account ID was not returned."
-    );
-
-    let profile =
-      embeddedInstagram;
-
-    try {
-      profile =
-        await fetchInstagramProfile(
-          {
-            instagramAccountId,
-            pageAccessToken,
-          }
-        );
-    } catch (error) {
-      console.error(
-        "INSTAGRAM PROFILE FETCH ERROR:",
-        error.message
-      );
-    }
-
-    const username =
-      profile?.username ||
-      embeddedInstagram
-        ?.username ||
-      "";
-
-    const name =
-      profile?.name ||
-      embeddedInstagram
-        ?.name ||
-      username ||
-      "Instagram Account";
-
-    const avatarUrl =
-      profile
-        ?.profile_picture_url ||
-      embeddedInstagram
-        ?.profile_picture_url ||
-      "";
-
-    const expiryDate =
-      longLivedTokenData
-        .expires_in
-        ? new Date(
-            Date.now() +
-              Number(
-                longLivedTokenData
-                  .expires_in
-              ) *
-                1000
-          )
-        : null;
-
-    return Connection.findOneAndUpdate(
-      {
-        userId,
-
-        platform:
-          "instagram",
-      },
-      {
-        $set: {
-          userId,
-
-          platform:
-            "instagram",
-
-          platformUserId:
-            instagramAccountId,
-
-          platformUsername:
-            username,
-
-          username,
-
-          name,
-
-          avatarUrl,
-
-          profilePictureUrl:
-            avatarUrl,
-
-          instagramAccountId,
-
-          instagramUsername:
-            username,
-
-          pageId:
-            pageWithInstagram.id,
-
-          pageName:
-            pageWithInstagram
-              .name ||
-            "",
-
-          pageAccessToken,
-
-          accessToken,
-
-          refreshToken:
-            "",
-
-          tokenExpiryDate:
-            expiryDate,
-
-          connected:
-            true,
-
-          instagramLiveStatus:
-            "idle",
-
-          metadata: {
-            connectionType:
-              "oauth",
-
-            instagramAccountId,
-
-            username,
-
-            name,
-
-            profile_picture_url:
-              avatarUrl,
-
-            facebookPageId:
-              pageWithInstagram.id,
-
-            facebookPageName:
-              pageWithInstagram
-                .name ||
-              "",
-
-            tokenType:
-              longLivedTokenData
-                .token_type ||
-              tokenData.token_type ||
-              "bearer",
-
-            tokenExpiresIn:
-              longLivedTokenData
-                .expires_in ||
-              tokenData.expires_in ||
-              null,
-
-            connectedAt:
-              new Date(),
-          },
-        },
-      },
-      {
-        upsert:
-          true,
-
-        new:
-          true,
-
-        runValidators:
-          true,
-
-        setDefaultsOnInsert:
-          true,
-      }
-    );
-  };
-
-/* =========================================================
-   HANDLE YOUTUBE CALLBACK
-========================================================= */
-
-const handleYouTubeCallback =
-  async (
-    code,
-    userId
-  ) => {
-    const oauth2Client =
-      createYouTubeOAuthClient();
-
-    const {
-      tokens,
-    } =
-      await oauth2Client.getToken(
-        code
-      );
-
-    if (
-      !tokens.access_token &&
-      !tokens.refresh_token
-    ) {
-      throw new Error(
-        "Google did not return YouTube authorization tokens."
-      );
-    }
-
-    const existingConnection =
-      await Connection.findOne(
-        {
-          userId,
-
-          platform:
-            "youtube",
-        }
-      ).select(
-        [
-          "+accessToken",
-          "+refreshToken",
-        ].join(" ")
-      );
-
-    const accessToken =
-      tokens.access_token ||
-      existingConnection
-        ?.accessToken ||
-      "";
-
-    const refreshToken =
-      tokens.refresh_token ||
-      existingConnection
-        ?.refreshToken ||
-      "";
-
-    if (!refreshToken) {
-      throw new Error(
-        "Google did not return a refresh token. Revoke Twinn from your Google Account permissions and connect YouTube again."
-      );
-    }
-
-    oauth2Client.setCredentials(
-      {
-        ...tokens,
-
-        access_token:
-          accessToken,
-
-        refresh_token:
-          refreshToken,
-      }
-    );
-
-    const youtube =
-      google.youtube(
-        {
-          version:
-            "v3",
-
-          auth:
-            oauth2Client,
-        }
-      );
-
-    const channelResponse =
-      await youtube.channels.list(
-        {
-          part: [
-            "id",
-            "snippet",
-            "status",
-            "contentDetails",
-          ],
-
-          mine:
-            true,
-        }
-      );
-
-    const channel =
-      channelResponse
-        .data
-        .items?.[0];
-
-    if (!channel) {
-      throw new Error(
-        "No YouTube channel was found for this Google account."
-      );
-    }
-
-    const thumbnail =
-      channel.snippet
-        ?.thumbnails
-        ?.high?.url ||
-      channel.snippet
-        ?.thumbnails
-        ?.medium?.url ||
-      channel.snippet
-        ?.thumbnails
-        ?.default?.url ||
-      "";
-
-    const tokenExpiryDate =
-      tokens.expiry_date
-        ? new Date(
-            tokens.expiry_date
-          )
-        : existingConnection
-            ?.tokenExpiryDate ||
-          null;
-
-    return Connection.findOneAndUpdate(
-      {
-        userId,
-
-        platform:
-          "youtube",
-      },
-      {
-        $set: {
-          userId,
-
-          platform:
-            "youtube",
-
-          platformUserId:
-            channel.id,
-
-          platformUsername:
-            channel.snippet
-              ?.title ||
-            "",
-
-          username:
-            channel.snippet
-              ?.title ||
-            "",
-
-          name:
-            channel.snippet
-              ?.title ||
-            "YouTube Channel",
-
-          avatarUrl:
-            thumbnail,
-
-          profilePictureUrl:
-            thumbnail,
-
-          accessToken,
-
-          refreshToken,
-
-          tokenExpiryDate,
-
-          youtubeChannelId:
-            channel.id,
-
-          youtubeChannelTitle:
-            channel.snippet
-              ?.title ||
-            "YouTube Channel",
-
-          youtubeChannelThumbnail:
-            thumbnail,
-
-          connected:
-            true,
-
-          youtubeLiveStatus:
-            existingConnection
-              ?.youtubeLiveStatus ||
-            "idle",
-
-          metadata: {
-            connectionType:
-              "oauth",
-
-            channelDescription:
-              channel.snippet
-                ?.description ||
-              "",
-
-            channelCustomUrl:
-              channel.snippet
-                ?.customUrl ||
-              "",
-
-            country:
-              channel.snippet
-                ?.country ||
-              "",
-
-            privacyStatus:
-              channel.status
-                ?.privacyStatus ||
-              "",
-
-            connectedAt:
-              new Date(),
-          },
-        },
-      },
-      {
-        upsert:
-          true,
-
-        new:
-          true,
-
-        runValidators:
-          true,
-
-        setDefaultsOnInsert:
-          true,
-      }
-    );
-  };
-
-/* =========================================================
-   HANDLE OAUTH CALLBACK
+   LEGACY OAUTH CALLBACK
 ========================================================= */
 
 exports.handleCallback =
   async (
-    platform,
-    code,
-    userId
+    platform
   ) => {
-    const normalizedPlatform =
-      validateOAuthPlatform(
+    const config =
+      getPlatformConfig(
         platform
       );
 
-    ensureValue(
-      code,
-      "OAuth authorization code is missing."
-    );
-
-    ensureValue(
-      userId,
-      "User ID is missing."
-    );
-
-    if (
-      normalizedPlatform ===
-      "facebook"
-    ) {
-      return handleFacebookCallback(
-        code,
-        userId
-      );
-    }
-
-    if (
-      normalizedPlatform ===
-      "instagram"
-    ) {
-      return handleInstagramCallback(
-        code,
-        userId
-      );
-    }
-
-    if (
-      normalizedPlatform ===
-      "youtube"
-    ) {
-      return handleYouTubeCallback(
-        code,
-        userId
-      );
-    }
-
     throw new Error(
-      `Unsupported OAuth platform: ${normalizedPlatform}`
+      `${config.name} OAuth callback is disabled. Use manual RTMP configuration.`
     );
   };
 
 /* =========================================================
-   GET AUTHENTICATED YOUTUBE CLIENT
+   SAVE MANUAL RTMP CONNECTION
 ========================================================= */
 
-exports.getYouTubeClientForUser =
-  async (
-    userId
-  ) => {
+exports.saveManualRtmpConnection =
+  async ({
+    userId,
+    platform,
+    rtmpUrl,
+    streamKey,
+    username =
+      "",
+    channelName =
+      "",
+    channelUrl =
+      "",
+    avatarUrl =
+      "",
+    profilePictureUrl =
+      "",
+    platformUserId =
+      "",
+    metadata =
+      {},
+  }) => {
     ensureValue(
       userId,
       "User ID is required."
     );
 
-    const connection =
-      await Connection.findOne(
-        {
-          userId,
-
-          platform:
-            "youtube",
-
-          connected:
-            true,
-        }
-      ).select(
-        [
-          "+accessToken",
-          "+refreshToken",
-          "+youtubeStreamKey",
-        ].join(" ")
+    const config =
+      getPlatformConfig(
+        platform
       );
 
-    if (!connection) {
+    const normalizedRtmpUrl =
+      normalizeRtmpUrl(
+        rtmpUrl
+      );
+
+    const normalizedStreamKey =
+      normalizeStreamKey(
+        streamKey
+      );
+
+    const normalizedUsername =
+      String(
+        username || ""
+      ).trim();
+
+    const normalizedChannelName =
+      String(
+        channelName ||
+        normalizedUsername ||
+        config.name
+      ).trim();
+
+    const normalizedChannelUrl =
+      String(
+        channelUrl || ""
+      ).trim();
+
+    const normalizedAvatarUrl =
+      String(
+        avatarUrl ||
+        profilePictureUrl ||
+        ""
+      ).trim();
+
+    ensureValue(
+      normalizedRtmpUrl,
+      `${config.name} RTMP URL is required.`
+    );
+
+    ensureValue(
+      normalizedStreamKey,
+      `${config.name} stream key is required.`
+    );
+
+    if (
+      !isValidRtmpUrl(
+        normalizedRtmpUrl
+      )
+    ) {
       throw new Error(
-        "YouTube is not connected."
+        `${config.name} RTMP URL must start with rtmp:// or rtmps://.`
       );
     }
 
     if (
-      !connection.refreshToken
+      !isValidHttpUrl(
+        normalizedChannelUrl
+      )
     ) {
       throw new Error(
-        "YouTube refresh token is missing. Disconnect and reconnect YouTube."
+        `${config.name} channel URL must start with http:// or https://.`
       );
     }
 
-    const oauth2Client =
-      createYouTubeOAuthClient();
+    if (
+      !isValidHttpUrl(
+        normalizedAvatarUrl
+      )
+    ) {
+      throw new Error(
+        `${config.name} profile picture URL must start with http:// or https://.`
+      );
+    }
 
-    oauth2Client.setCredentials(
-      {
-        access_token:
-          connection.accessToken ||
-          undefined,
+    const updateFields = {
+      userId,
 
-        refresh_token:
-          connection.refreshToken,
+      platform:
+        config.platform,
 
-        expiry_date:
-          connection
-            .tokenExpiryDate
-            ? new Date(
-                connection
-                  .tokenExpiryDate
-              ).getTime()
-            : undefined,
-      }
-    );
+      connected:
+        true,
 
-    oauth2Client.on(
-      "tokens",
-      async (
-        tokens
-      ) => {
-        try {
-          const update = {};
+      connectionType:
+        "manual-rtmp",
 
-          if (
-            tokens.access_token
-          ) {
-            update.accessToken =
-              tokens.access_token;
-          }
+      platformUserId:
+        String(
+          platformUserId || ""
+        ).trim(),
 
-          if (
-            tokens.refresh_token
-          ) {
-            update.refreshToken =
-              tokens.refresh_token;
-          }
+      platformUsername:
+        normalizedUsername,
 
-          if (
-            tokens.expiry_date
-          ) {
-            update.tokenExpiryDate =
-              new Date(
-                tokens.expiry_date
-              );
-          }
+      username:
+        normalizedUsername ||
+        normalizedChannelName,
 
-          if (
-            Object.keys(
-              update
-            ).length > 0
-          ) {
-            await Connection.updateOne(
-              {
-                _id:
-                  connection._id,
-              },
-              {
-                $set:
-                  update,
-              }
-            );
-          }
-        } catch (error) {
-          console.error(
-            "SAVE REFRESHED YOUTUBE TOKEN ERROR:",
-            error.message
-          );
-        }
-      }
-    );
+      name:
+        normalizedChannelName,
 
-    const youtube =
-      google.youtube(
+      channelName:
+        normalizedChannelName,
+
+      channelUrl:
+        normalizedChannelUrl,
+
+      avatarUrl:
+        normalizedAvatarUrl,
+
+      profilePictureUrl:
+        normalizedAvatarUrl,
+
+      rtmpUrl:
+        normalizedRtmpUrl,
+
+      streamKey:
+        normalizedStreamKey,
+
+      rtmpConfigured:
+        true,
+
+      liveStatus:
+        "idle",
+
+      [config.rtmpUrlField]:
+        normalizedRtmpUrl,
+
+      [config.streamKeyField]:
+        normalizedStreamKey,
+
+      [config.channelUrlField]:
+        normalizedChannelUrl,
+
+      [config.liveStatusField]:
+        "idle",
+
+      lastLiveStartedAt:
+        null,
+
+      lastLiveStoppedAt:
+        null,
+
+      metadata: {
+        ...metadata,
+
+        connectionType:
+          "manual-rtmp",
+
+        platform:
+          config.platform,
+
+        platformName:
+          config.name,
+
+        username:
+          normalizedUsername,
+
+        channelName:
+          normalizedChannelName,
+
+        dashboardUrl:
+          config.dashboardUrl,
+
+        configuredAt:
+          new Date(),
+      },
+    };
+
+    /*
+     * Save platform-specific profile fields for compatibility.
+     */
+
+    if (
+      config.platform ===
+      "instagram"
+    ) {
+      updateFields.instagramUsername =
+        normalizedUsername;
+    }
+
+    if (
+      config.platform ===
+      "facebook"
+    ) {
+      updateFields.pageName =
+        normalizedChannelName;
+    }
+
+    if (
+      config.platform ===
+      "youtube"
+    ) {
+      updateFields.youtubeChannelTitle =
+        normalizedChannelName;
+
+      updateFields.youtubeChannelThumbnail =
+        normalizedAvatarUrl;
+
+      /*
+       * Keep youtubeStreamUrl for compatibility with
+       * existing live-stream code.
+       */
+      updateFields.youtubeStreamUrl =
+        normalizedRtmpUrl;
+    }
+
+    const connection =
+      await Connection.findOneAndUpdate(
         {
-          version:
-            "v3",
+          userId,
 
-          auth:
-            oauth2Client,
+          platform:
+            config.platform,
+        },
+        {
+          $set:
+            updateFields,
+        },
+        {
+          new:
+            true,
+
+          upsert:
+            true,
+
+          runValidators:
+            true,
+
+          setDefaultsOnInsert:
+            true,
         }
       );
 
-    return {
-      youtube,
-      oauth2Client,
-      connection,
-    };
+    return buildSafeConnection(
+      connection
+    );
   };
 
 /* =========================================================
-   GET USER CONNECTIONS
+   GET ALL USER CONNECTIONS
 ========================================================= */
 
 exports.getConnections =
@@ -1523,75 +957,555 @@ exports.getConnections =
       "User ID is required."
     );
 
-    return Connection.find(
-      {
+    const connections =
+      await Connection.find({
         userId,
-      }
-    )
-      .select(
-        [
-          "-accessToken",
-          "-refreshToken",
-          "-pageAccessToken",
-          "-instagramStreamKey",
-          "-youtubeStreamKey",
-          "-rumbleStreamKey",
-          "-kickStreamKey",
-          "-twitchStreamKey",
-          "-twitterStreamKey",
-        ].join(" ")
-      )
-      .sort(
-        {
+      })
+        .select(
+          [
+            "-accessToken",
+            "-refreshToken",
+            "-pageAccessToken",
+            "-streamKey",
+            "-instagramStreamKey",
+            "-facebookStreamKey",
+            "-youtubeStreamKey",
+            "-linkedinStreamKey",
+            "-tiktokStreamKey",
+            "-rumbleStreamKey",
+            "-kickStreamKey",
+            "-twitchStreamKey",
+            "-twitterStreamKey",
+          ].join(
+            " "
+          )
+        )
+        .sort({
           createdAt:
             -1,
-        }
-      );
+        })
+        .lean();
+
+    return connections.map(
+      buildSafeConnection
+    );
   };
 
 /* =========================================================
-   REVOKE META TOKEN
+   GET SINGLE USER CONNECTION
 ========================================================= */
 
-const revokeMetaConnection =
+exports.getConnection =
   async (
-    connection
+    userId,
+    platform
   ) => {
-    const token =
-      connection.pageAccessToken ||
-      connection.accessToken;
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
 
-    if (!token) {
-      return;
+    const normalizedPlatform =
+      validatePlatform(
+        platform
+      );
+
+    const connection =
+      await Connection.findOne({
+        userId,
+
+        platform:
+          normalizedPlatform,
+      })
+        .select(
+          [
+            "-accessToken",
+            "-refreshToken",
+            "-pageAccessToken",
+            "-streamKey",
+            "-instagramStreamKey",
+            "-facebookStreamKey",
+            "-youtubeStreamKey",
+            "-linkedinStreamKey",
+            "-tiktokStreamKey",
+            "-rumbleStreamKey",
+            "-kickStreamKey",
+            "-twitchStreamKey",
+            "-twitterStreamKey",
+          ].join(
+            " "
+          )
+        )
+        .lean();
+
+    return buildSafeConnection(
+      connection
+    );
+  };
+
+/* =========================================================
+   GET CONNECTION WITH STREAM KEY
+========================================================= */
+
+/*
+ * This method must only be called internally by the
+ * FFmpeg/live streaming service.
+ *
+ * Never return this result directly to the frontend.
+ */
+exports.getConnectionWithSecrets =
+  async (
+    userId,
+    platform
+  ) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    const config =
+      getPlatformConfig(
+        platform
+      );
+
+    const connection =
+      await Connection.findOne({
+        userId,
+
+        platform:
+          config.platform,
+
+        connected:
+          true,
+      }).select(
+        [
+          "+streamKey",
+          `+${config.streamKeyField}`,
+        ].join(
+          " "
+        )
+      );
+
+    if (!connection) {
+      throw new Error(
+        `${config.name} is not connected.`
+      );
     }
 
-    const url =
-      `https://graph.facebook.com/` +
-      `${META_VERSION}/me/permissions` +
-      `?access_token=${encodeURIComponent(
-        token
-      )}`;
+    const rtmpUrl =
+      connection[
+        config.rtmpUrlField
+      ] ||
+      connection.rtmpUrl ||
+      "";
 
-    const response =
-      await fetch(
-        url,
+    const streamKey =
+      connection[
+        config.streamKeyField
+      ] ||
+      connection.streamKey ||
+      "";
+
+    if (
+      !rtmpUrl ||
+      !streamKey
+    ) {
+      throw new Error(
+        `${config.name} RTMP URL or stream key is missing.`
+      );
+    }
+
+    return {
+      connection,
+
+      platform:
+        config.platform,
+
+      platformName:
+        config.name,
+
+      rtmpUrl:
+        normalizeRtmpUrl(
+          rtmpUrl
+        ),
+
+      streamKey:
+        normalizeStreamKey(
+          streamKey
+        ),
+
+      destination:
+        buildRtmpDestination({
+          rtmpUrl,
+
+          streamKey,
+        }),
+    };
+  };
+
+/* =========================================================
+   GET MULTIPLE STREAMING DESTINATIONS
+========================================================= */
+
+exports.getStreamingDestinations =
+  async (
+    userId,
+    platforms
+  ) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    if (
+      !Array.isArray(
+        platforms
+      ) ||
+      platforms.length === 0
+    ) {
+      throw new Error(
+        "At least one streaming platform is required."
+      );
+    }
+
+    const normalizedPlatforms = [
+      ...new Set(
+        platforms.map(
+          normalizePlatform
+        )
+      ),
+    ];
+
+    const destinations =
+      await Promise.all(
+        normalizedPlatforms.map(
+          async (
+            platform
+          ) => {
+            try {
+              const result =
+                await exports
+                  .getConnectionWithSecrets(
+                    userId,
+                    platform
+                  );
+
+              return {
+                success:
+                  true,
+
+                platform:
+                  result.platform,
+
+                platformName:
+                  result.platformName,
+
+                rtmpUrl:
+                  result.rtmpUrl,
+
+                streamKey:
+                  result.streamKey,
+
+                destination:
+                  result.destination,
+
+                connectionId:
+                  result.connection._id,
+              };
+            } catch (error) {
+              return {
+                success:
+                  false,
+
+                platform,
+
+                message:
+                  error.message,
+              };
+            }
+          }
+        )
+      );
+
+    return destinations;
+  };
+
+/* =========================================================
+   UPDATE CONNECTION PROFILE
+========================================================= */
+
+exports.updateConnectionProfile =
+  async ({
+    userId,
+    platform,
+    username,
+    channelName,
+    channelUrl,
+    avatarUrl,
+    profilePictureUrl,
+  }) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    const config =
+      getPlatformConfig(
+        platform
+      );
+
+    const normalizedUsername =
+      String(
+        username || ""
+      ).trim();
+
+    const normalizedChannelName =
+      String(
+        channelName ||
+        normalizedUsername ||
+        config.name
+      ).trim();
+
+    const normalizedChannelUrl =
+      String(
+        channelUrl || ""
+      ).trim();
+
+    const normalizedAvatarUrl =
+      String(
+        avatarUrl ||
+        profilePictureUrl ||
+        ""
+      ).trim();
+
+    if (
+      !isValidHttpUrl(
+        normalizedChannelUrl
+      )
+    ) {
+      throw new Error(
+        "Channel URL must start with http:// or https://."
+      );
+    }
+
+    if (
+      !isValidHttpUrl(
+        normalizedAvatarUrl
+      )
+    ) {
+      throw new Error(
+        "Profile picture URL must start with http:// or https://."
+      );
+    }
+
+    const updateFields = {
+      platformUsername:
+        normalizedUsername,
+
+      username:
+        normalizedUsername ||
+        normalizedChannelName,
+
+      name:
+        normalizedChannelName,
+
+      channelName:
+        normalizedChannelName,
+
+      channelUrl:
+        normalizedChannelUrl,
+
+      avatarUrl:
+        normalizedAvatarUrl,
+
+      profilePictureUrl:
+        normalizedAvatarUrl,
+
+      [config.channelUrlField]:
+        normalizedChannelUrl,
+
+      "metadata.username":
+        normalizedUsername,
+
+      "metadata.channelName":
+        normalizedChannelName,
+
+      "metadata.profileUpdatedAt":
+        new Date(),
+    };
+
+    if (
+      config.platform ===
+      "instagram"
+    ) {
+      updateFields.instagramUsername =
+        normalizedUsername;
+    }
+
+    if (
+      config.platform ===
+      "facebook"
+    ) {
+      updateFields.pageName =
+        normalizedChannelName;
+    }
+
+    if (
+      config.platform ===
+      "youtube"
+    ) {
+      updateFields.youtubeChannelTitle =
+        normalizedChannelName;
+
+      updateFields.youtubeChannelThumbnail =
+        normalizedAvatarUrl;
+    }
+
+    const connection =
+      await Connection.findOneAndUpdate(
         {
-          method:
-            "DELETE",
+          userId,
+
+          platform:
+            config.platform,
+        },
+        {
+          $set:
+            updateFields,
+        },
+        {
+          new:
+            true,
+
+          runValidators:
+            true,
         }
       );
 
-    const data =
-      await parseJsonResponse(
-        response
-      );
-
-    if (!response.ok) {
+    if (!connection) {
       throw new Error(
-        data.error?.message ||
-        "Unable to revoke Meta authorization."
+        `${config.name} connection was not found.`
       );
     }
+
+    return buildSafeConnection(
+      connection
+    );
+  };
+
+/* =========================================================
+   UPDATE LIVE STATUS
+========================================================= */
+
+exports.updateLiveStatus =
+  async ({
+    userId,
+    platform,
+    status,
+    errorMessage =
+      "",
+  }) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    const config =
+      getPlatformConfig(
+        platform
+      );
+
+    const allowedStatuses = [
+      "idle",
+      "starting",
+      "created",
+      "streaming",
+      "ready",
+      "live",
+      "complete",
+      "failed",
+    ];
+
+    if (
+      !allowedStatuses.includes(
+        status
+      )
+    ) {
+      throw new Error(
+        `Invalid live status: ${status}.`
+      );
+    }
+
+    const updateFields = {
+      liveStatus:
+        status,
+
+      [config.liveStatusField]:
+        status,
+
+      "metadata.lastStatusUpdateAt":
+        new Date(),
+    };
+
+    if (
+      errorMessage
+    ) {
+      updateFields[
+        "metadata.lastLiveError"
+      ] =
+        String(
+          errorMessage
+        );
+    }
+
+    if (
+      status === "starting" ||
+      status === "streaming" ||
+      status === "live"
+    ) {
+      updateFields.lastLiveStartedAt =
+        new Date();
+    }
+
+    if (
+      status === "complete" ||
+      status === "failed" ||
+      status === "idle"
+    ) {
+      updateFields.lastLiveStoppedAt =
+        new Date();
+    }
+
+    const connection =
+      await Connection.findOneAndUpdate(
+        {
+          userId,
+
+          platform:
+            config.platform,
+        },
+        {
+          $set:
+            updateFields,
+        },
+        {
+          new:
+            true,
+
+          runValidators:
+            true,
+        }
+      );
+
+    if (!connection) {
+      throw new Error(
+        `${config.name} connection was not found.`
+      );
+    }
+
+    return buildSafeConnection(
+      connection
+    );
   };
 
 /* =========================================================
@@ -1603,78 +1517,111 @@ exports.deleteConnection =
     userId,
     platform
   ) => {
-    const normalizedPlatform =
-      validateOAuthPlatform(
-        platform
-      );
-
     ensureValue(
       userId,
       "User ID is required."
     );
 
-    const connection =
-      await Connection.findOne(
-        {
-          userId,
-
-          platform:
-            normalizedPlatform,
-        }
-      ).select(
-        [
-          "+accessToken",
-          "+refreshToken",
-          "+pageAccessToken",
-        ].join(" ")
+    const normalizedPlatform =
+      validatePlatform(
+        platform
       );
 
-    if (!connection) {
-      return null;
-    }
+    return Connection.findOneAndDelete(
+      {
+        userId,
 
-    if (
-      normalizedPlatform ===
-        "youtube" &&
-      connection.refreshToken
-    ) {
-      try {
-        const oauth2Client =
-          createYouTubeOAuthClient();
-
-        await oauth2Client.revokeToken(
-          connection.refreshToken
-        );
-      } catch (error) {
-        console.error(
-          "YOUTUBE TOKEN REVOCATION ERROR:",
-          error.response?.data ||
-          error.message
-        );
+        platform:
+          normalizedPlatform,
       }
-    }
+    );
+  };
 
-    if (
-      normalizedPlatform ===
-        "facebook" ||
-      normalizedPlatform ===
-        "instagram"
-    ) {
-      try {
-        await revokeMetaConnection(
-          connection
+/* =========================================================
+   CHECK CONNECTION
+========================================================= */
+
+exports.isConnected =
+  async (
+    userId,
+    platform
+  ) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    const normalizedPlatform =
+      validatePlatform(
+        platform
+      );
+
+    const connection =
+      await Connection.exists({
+        userId,
+
+        platform:
+          normalizedPlatform,
+
+        connected:
+          true,
+
+        rtmpConfigured:
+          true,
+      });
+
+    return Boolean(
+      connection
+    );
+  };
+
+/* =========================================================
+   LEGACY YOUTUBE CLIENT METHOD
+========================================================= */
+
+/*
+ * YouTube API OAuth is no longer used.
+ * The existing YouTube live controller must stream with
+ * FFmpeg using getConnectionWithSecrets() instead.
+ */
+exports.getYouTubeClientForUser =
+  async (
+    userId
+  ) => {
+    ensureValue(
+      userId,
+      "User ID is required."
+    );
+
+    const result =
+      await exports
+        .getConnectionWithSecrets(
+          userId,
+          "youtube"
         );
-      } catch (error) {
-        console.error(
-          "META TOKEN REVOCATION ERROR:",
-          error.message
-        );
-      }
-    }
 
-    await connection.deleteOne();
+    return {
+      connection:
+        result.connection,
 
-    return connection;
+      platform:
+        result.platform,
+
+      rtmpUrl:
+        result.rtmpUrl,
+
+      streamKey:
+        result.streamKey,
+
+      destination:
+        result.destination,
+
+      youtube:
+        null,
+
+      oauth2Client:
+        null,
+    };
   };
 
 /* =========================================================
@@ -1684,8 +1631,29 @@ exports.deleteConnection =
 exports.normalizePlatform =
   normalizePlatform;
 
-exports.validateOAuthPlatform =
-  validateOAuthPlatform;
+exports.validatePlatform =
+  validatePlatform;
 
-exports.createYouTubeOAuthClient =
-  createYouTubeOAuthClient;
+exports.getPlatformConfig =
+  getPlatformConfig;
+
+exports.buildRtmpDestination =
+  buildRtmpDestination;
+
+exports.buildSafeConnection =
+  buildSafeConnection;
+
+exports.isValidRtmpUrl =
+  isValidRtmpUrl;
+
+exports.isValidHttpUrl =
+  isValidHttpUrl;
+
+exports.MANUAL_RTMP_PLATFORMS =
+  MANUAL_RTMP_PLATFORMS;
+
+exports.SUPPORTED_PLATFORMS =
+  SUPPORTED_PLATFORMS;
+
+exports.PLATFORM_CONFIG =
+  PLATFORM_CONFIG;

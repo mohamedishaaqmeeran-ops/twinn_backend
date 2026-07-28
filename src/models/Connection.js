@@ -3,6 +3,21 @@ const mongoose = require(
 );
 
 /* =========================================================
+   SHARED LIVE STATUS VALUES
+========================================================= */
+
+const LIVE_STATUS_VALUES = [
+  "idle",
+  "starting",
+  "created",
+  "streaming",
+  "ready",
+  "live",
+  "complete",
+  "failed",
+];
+
+/* =========================================================
    CONNECTION SCHEMA
 ========================================================= */
 
@@ -40,6 +55,7 @@ const connectionSchema =
           "instagram",
           "facebook",
           "youtube",
+          "linkedin",
           "tiktok",
           "rumble",
           "kick",
@@ -63,6 +79,20 @@ const connectionSchema =
 
         default:
           true,
+      },
+
+      connectionType: {
+        type:
+          String,
+
+        enum: [
+          "manual-rtmp",
+          "oauth",
+          "oauth-rtmp",
+        ],
+
+        default:
+          "manual-rtmp",
       },
 
       /* =====================================================
@@ -113,6 +143,28 @@ const connectionSchema =
           true,
       },
 
+      channelName: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      channelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
       avatarUrl: {
         type:
           String,
@@ -136,7 +188,52 @@ const connectionSchema =
       },
 
       /* =====================================================
-         OAUTH TOKENS
+         GENERIC RTMP DETAILS
+      ===================================================== */
+
+      rtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      streamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        select:
+          false,
+      },
+
+      rtmpConfigured: {
+        type:
+          Boolean,
+
+        default:
+          false,
+      },
+
+      liveStatus: {
+        type:
+          String,
+
+        enum:
+          LIVE_STATUS_VALUES,
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         OPTIONAL OAUTH TOKENS
       ===================================================== */
 
       accessToken: {
@@ -206,6 +303,50 @@ const connectionSchema =
           false,
       },
 
+      facebookRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      facebookStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        select:
+          false,
+      },
+
+      facebookChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      facebookLiveStatus: {
+        type:
+          String,
+
+        enum:
+          LIVE_STATUS_VALUES,
+
+        default:
+          "idle",
+      },
+
       /* =====================================================
          INSTAGRAM
       ===================================================== */
@@ -254,17 +395,23 @@ const connectionSchema =
           false,
       },
 
+      instagramChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
       instagramLiveStatus: {
         type:
           String,
 
-        enum: [
-          "idle",
-          "starting",
-          "streaming",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
@@ -344,6 +491,17 @@ const connectionSchema =
           true,
       },
 
+      youtubeRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
       youtubeStreamKey: {
         type:
           String,
@@ -353,6 +511,17 @@ const connectionSchema =
 
         select:
           false,
+      },
+
+      youtubeChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
       },
 
       youtubeWatchUrl: {
@@ -370,22 +539,122 @@ const connectionSchema =
         type:
           String,
 
-        enum: [
-          "idle",
-          "created",
-          "streaming",
-          "ready",
-          "live",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
       },
 
       /* =====================================================
-         RUMBLE RTMP
+         LINKEDIN
+      ===================================================== */
+
+      linkedinProfileId: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      linkedinRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      linkedinStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        select:
+          false,
+      },
+
+      linkedinChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      linkedinLiveStatus: {
+        type:
+          String,
+
+        enum:
+          LIVE_STATUS_VALUES,
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         TIKTOK
+      ===================================================== */
+
+      tiktokRtmpUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      tiktokStreamKey: {
+        type:
+          String,
+
+        default:
+          "",
+
+        select:
+          false,
+      },
+
+      tiktokChannelUrl: {
+        type:
+          String,
+
+        default:
+          "",
+
+        trim:
+          true,
+      },
+
+      tiktokLiveStatus: {
+        type:
+          String,
+
+        enum:
+          LIVE_STATUS_VALUES,
+
+        default:
+          "idle",
+      },
+
+      /* =====================================================
+         RUMBLE
       ===================================================== */
 
       rumbleRtmpUrl: {
@@ -406,9 +675,6 @@ const connectionSchema =
         default:
           "",
 
-        trim:
-          true,
-
         select:
           false,
       },
@@ -428,20 +694,15 @@ const connectionSchema =
         type:
           String,
 
-        enum: [
-          "idle",
-          "starting",
-          "streaming",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
       },
 
       /* =====================================================
-         KICK RTMP
+         KICK
       ===================================================== */
 
       kickRtmpUrl: {
@@ -462,9 +723,6 @@ const connectionSchema =
         default:
           "",
 
-        trim:
-          true,
-
         select:
           false,
       },
@@ -484,20 +742,15 @@ const connectionSchema =
         type:
           String,
 
-        enum: [
-          "idle",
-          "starting",
-          "streaming",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
       },
 
       /* =====================================================
-         TWITCH RTMP
+         TWITCH
       ===================================================== */
 
       twitchRtmpUrl: {
@@ -518,9 +771,6 @@ const connectionSchema =
         default:
           "",
 
-        trim:
-          true,
-
         select:
           false,
       },
@@ -540,20 +790,15 @@ const connectionSchema =
         type:
           String,
 
-        enum: [
-          "idle",
-          "starting",
-          "streaming",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
       },
 
       /* =====================================================
-         TWITTER / X RTMP
+         TWITTER / X
       ===================================================== */
 
       twitterRtmpUrl: {
@@ -574,9 +819,6 @@ const connectionSchema =
         default:
           "",
 
-        trim:
-          true,
-
         select:
           false,
       },
@@ -596,13 +838,8 @@ const connectionSchema =
         type:
           String,
 
-        enum: [
-          "idle",
-          "starting",
-          "streaming",
-          "complete",
-          "failed",
-        ],
+        enum:
+          LIVE_STATUS_VALUES,
 
         default:
           "idle",
@@ -672,39 +909,119 @@ connectionSchema.index(
 );
 
 /* =========================================================
+   SYNCHRONIZE GENERIC RTMP FIELDS
+========================================================= */
+
+connectionSchema.pre(
+  "save",
+  function syncGenericRtmpFields(
+    next
+  ) {
+    const platform =
+      this.platform;
+
+    const platformRtmpField =
+      `${platform}RtmpUrl`;
+
+    const platformStreamKeyField =
+      `${platform}StreamKey`;
+
+    const platformChannelUrlField =
+      `${platform}ChannelUrl`;
+
+    const platformLiveStatusField =
+      `${platform}LiveStatus`;
+
+    if (
+      this[
+        platformRtmpField
+      ] &&
+      !this.rtmpUrl
+    ) {
+      this.rtmpUrl =
+        this[
+          platformRtmpField
+        ];
+    }
+
+    if (
+      this[
+        platformStreamKeyField
+      ] &&
+      !this.streamKey
+    ) {
+      this.streamKey =
+        this[
+          platformStreamKeyField
+        ];
+    }
+
+    if (
+      this[
+        platformChannelUrlField
+      ] &&
+      !this.channelUrl
+    ) {
+      this.channelUrl =
+        this[
+          platformChannelUrlField
+        ];
+    }
+
+    if (
+      this[
+        platformLiveStatusField
+      ]
+    ) {
+      this.liveStatus =
+        this[
+          platformLiveStatusField
+        ];
+    }
+
+    this.rtmpConfigured =
+      Boolean(
+        this.rtmpUrl &&
+        this.streamKey
+      );
+
+    next();
+  }
+);
+
+/* =========================================================
    REMOVE PRIVATE FIELDS
 ========================================================= */
+
+const PRIVATE_FIELDS = [
+  "accessToken",
+  "refreshToken",
+  "pageAccessToken",
+  "streamKey",
+  "instagramStreamKey",
+  "facebookStreamKey",
+  "youtubeStreamKey",
+  "linkedinStreamKey",
+  "tiktokStreamKey",
+  "rumbleStreamKey",
+  "kickStreamKey",
+  "twitchStreamKey",
+  "twitterStreamKey",
+];
 
 const removePrivateFields =
   (
     returnedObject
   ) => {
-    delete returnedObject
-      .accessToken;
-
-    delete returnedObject
-      .refreshToken;
-
-    delete returnedObject
-      .pageAccessToken;
-
-    delete returnedObject
-      .instagramStreamKey;
-
-    delete returnedObject
-      .youtubeStreamKey;
-
-    delete returnedObject
-      .rumbleStreamKey;
-
-    delete returnedObject
-      .kickStreamKey;
-
-    delete returnedObject
-      .twitchStreamKey;
-
-    delete returnedObject
-      .twitterStreamKey;
+    PRIVATE_FIELDS.forEach(
+      (
+        field
+      ) => {
+        delete returnedObject[
+          field
+        ];
+      }
+    );
 
     return returnedObject;
   };
