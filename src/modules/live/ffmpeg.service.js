@@ -2019,62 +2019,54 @@ exports.startStream = ({
      STDERR EVENT
   ======================================================= */
 
- ffmpegProcess.stderr.on("data", (chunk) => {
-    const rawMessage = chunk.toString();
+ffmpegProcess.stderr.on(
+  "data",
+  (chunk) => {
+    const rawMessage =
+      chunk.toString();
 
-    console.log("========== FFMPEG ==========");
-    console.log(rawMessage);
-    console.log("============================");
+    entry.stderr =
+      (
+        entry.stderr +
+        rawMessage
+      ).slice(-20000);
 
-      entry.stderr =
-        (
-          entry.stderr +
+    if (
+      hasStreamingStarted(
+        rawMessage
+      )
+    ) {
+      invokeStreaming();
+    }
+
+    const detectedFailure =
+      detectFfmpegFailure(
+        rawMessage
+      );
+
+    if (
+      detectedFailure &&
+      entry.status !== "failed"
+    ) {
+      entry.errorMessage =
+        detectedFailure;
+    }
+
+    if (FFMPEG_DEBUG) {
+      const safeDebugMessage =
+        maskRtmpSecrets(
           rawMessage
-        ).slice(
-          -20000
-        );
+        ).trim();
 
-      if (
-        hasStreamingStarted(
-          rawMessage
-        )
-      ) {
-        invokeStreaming();
-      }
-
-      const detectedFailure =
-        detectFfmpegFailure(
-          rawMessage
-        );
-
-      if (
-        detectedFailure &&
-        entry.status !==
-          "failed"
-      ) {
-        entry.errorMessage =
-          detectedFailure;
-      }
-
-      if (
-        FFMPEG_DEBUG
-      ) {
-        const safeDebugMessage =
-          maskRtmpSecrets(
-            rawMessage
-          ).trim();
-
-        if (
+      if (safeDebugMessage) {
+        console.log(
+          `[FFMPEG:${normalizedPlatform}]`,
           safeDebugMessage
-        ) {
-          console.log(
-            `[FFMPEG:${normalizedPlatform}]`,
-            safeDebugMessage
-          );
-        }
+        );
       }
     }
-  );
+  }
+);
 
   /* =======================================================
      PROCESS ERROR EVENT
