@@ -2191,6 +2191,10 @@ exports.startStream = ({
    START STREAM AND WAIT FOR SPAWN
 ========================================================= */
 
+/* =========================================================
+   START STREAM AND WAIT FOR REAL STREAMING
+========================================================= */
+
 exports.startStreamAsync = (
   options
 ) => {
@@ -2199,20 +2203,84 @@ exports.startStreamAsync = (
       resolve,
       reject
     ) => {
-      let settled =
-        false;
+      let settled = false;
 
       const originalOnStarted =
         options.onStarted;
 
+      const originalOnStreaming =
+        options.onStreaming;
+
       const originalOnError =
         options.onError;
 
+      const originalOnExit =
+        options.onExit;
+
+      const connectionTimeoutMs =
+        Number(
+          process.env
+            .FFMPEG_CONNECTION_TIMEOUT_MS
+        ) || 30000;
+
+      let timeout = null;
+
+      const clearConnectionTimeout =
+        () => {
+          if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+          }
+        };
+
+      const rejectOnce = (
+        error
+      ) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+
+        clearConnectionTimeout();
+
+        reject(
+          error instanceof Error
+            ? error
+            : new Error(
+                String(
+                  error ||
+                    "Unable to start stream."
+                )
+              )
+        );
+      };
+
+      const resolveOnce = (
+        payload
+      ) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+
+        clearConnectionTimeout();
+
+        resolve(payload);
+      };
+
       try {
-        const result =
+        let startResult = null;
+
+        startResult =
           exports.startStream({
             ...options,
 
+            /*
+             * Spawn only means the FFmpeg process exists.
+             * Do not resolve the request here.
+             */
             onStarted:
               async (
                 payload
@@ -2222,17 +2290,28 @@ exports.startStreamAsync = (
                   payload,
                   "ORIGINAL STARTED"
                 );
+              },
 
-                if (!settled) {
-                  settled =
-                    true;
+            /*
+             * Resolve only after stderr confirms that
+             * FFmpeg opened the output or started frames.
+             */
+            onStreaming:
+              async (
+                payload
+              ) => {
+                await invokeCallbackSafely(
+                  originalOnStreaming,
+                  payload,
+                  "ORIGINAL STREAMING"
+                );
 
-                  resolve({
-                    ...result,
-
-                    ...payload,
-                  });
-                }
+                resolveOnce({
+                  ...startResult,
+                  ...payload,
+                  status:
+                    "streaming",
+                });
               },
 
             onError:
@@ -2245,27 +2324,85 @@ exports.startStreamAsync = (
                   "ORIGINAL ERROR"
                 );
 
-                if (!settled) {
-                  settled =
-                    true;
-
-                  reject(
-                    payload.error ||
+                rejectOnce(
+                  payload?.error ||
                     new Error(
-                      payload.message ||
-                      "Unable to start FFmpeg."
+                      payload?.message ||
+                        "FFmpeg failed to connect."
+                    )
+                );
+              },
+
+            onExit:
+              async (
+                payload
+              ) => {
+                await invokeCallbackSafely(
+                  originalOnExit,
+                  payload,
+                  "ORIGINAL EXIT"
+                );
+
+                if (
+                  !settled
+                ) {
+                  const stderr =
+                    payload?.stderr ||
+                    "";
+
+                  rejectOnce(
+                    new Error(
+                      stderr ||
+                        payload
+                          ?.errorMessage ||
+                        `FFmpeg exited before streaming. Code: ${
+                          payload?.code ??
+                          "unknown"
+                        }`
                     )
                   );
                 }
               },
           });
-      } catch (error) {
-        settled =
-          true;
 
-        reject(
-          error
-        );
+        timeout =
+          setTimeout(
+            async () => {
+              if (settled) {
+                return;
+              }
+
+              const processKey =
+                startResult?.key;
+
+              if (processKey) {
+                try {
+                  await exports
+                    .stopProcessByKey(
+                      processKey
+                    );
+                } catch (
+                  stopError
+                ) {
+                  console.error(
+                    "FFMPEG TIMEOUT STOP ERROR:",
+                    getSafeErrorMessage(
+                      stopError
+                    )
+                  );
+                }
+              }
+
+              rejectOnce(
+                new Error(
+                  "FFmpeg started but could not connect to the RTMP server within 30 seconds. Verify the RTMP URL and stream key."
+                )
+              );
+            },
+            connectionTimeoutMs
+          );
+      } catch (error) {
+        rejectOnce(error);
       }
     }
   );
