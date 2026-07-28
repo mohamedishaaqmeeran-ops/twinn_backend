@@ -574,7 +574,7 @@ exports.startLive = async ({
     "file",
 
   loop =
-    false,
+    true,
 
   videoBitrate,
 
@@ -597,7 +597,7 @@ exports.startLive = async ({
     true,
 
   rollbackOnFailure =
-    true,
+    false,
 
   temporaryFile =
     false,
