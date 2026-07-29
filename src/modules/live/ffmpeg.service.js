@@ -1333,17 +1333,64 @@ const safeFps =
     );
   }
 
+  /* =======================================================
+   OUTPUT CONFIGURATION
+
+   Use normal FLV output when only one platform is selected.
+   Use tee only for multiple platforms.
+======================================================= */
+
+if (safeDestinations.length === 1) {
+  const destination =
+    safeDestinations[0];
+
+  console.log(
+    "USING DIRECT RTMP OUTPUT:",
+    {
+      platform:
+        destination.platform,
+
+      output:
+        "[RTMP_URL_HIDDEN]",
+    }
+  );
+
+  args.push(
+    "-progress",
+    "pipe:2",
+
+    "-f",
+    "flv",
+
+    "-flvflags",
+    "no_duration_filesize",
+
+    destination.outputUrl
+  );
+} else {
   const teeOutput =
     safeDestinations
       .map(
         (destination) =>
-          `[f=flv:onfail=ignore]${escapeTeeOutputUrl(
+          `[f=flv:onfail=abort]${escapeTeeOutputUrl(
             destination.outputUrl
           )}`
       )
-      .join(
-        "|"
-      );
+      .join("|");
+
+  console.log(
+    "USING TEE RTMP OUTPUT:",
+    {
+      destinationCount:
+        safeDestinations.length,
+
+      platforms:
+        safeDestinations.map(
+          (destination) =>
+            destination.platform
+        ),
+    }
+  );
 
   args.push(
     "-progress",
@@ -1354,6 +1401,7 @@ const safeFps =
 
     teeOutput
   );
+}
 
   return {
     args,
