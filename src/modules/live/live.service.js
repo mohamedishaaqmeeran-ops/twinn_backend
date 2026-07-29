@@ -751,66 +751,74 @@ exports.startLive = async ({
             ),
 
           onPlatformStarted:
-            async (
-              payload
-            ) => {
-              const connection =
-                connectionByPlatform.get(
-                  payload.platform
-                );
+  async (
+    payload
+  ) => {
+    const platform =
+      payload.platform;
 
-              await updateConnectionStatus({
-                connectionId:
-                  connection?._id,
+    const connection =
+      connectionByPlatform.get(
+        platform
+      );
 
-                platform:
-                  payload.platform,
+    if (!connection) {
+      return;
+    }
 
-                status:
-                  "started",
+    await updateConnectionStatus({
+      connectionId:
+        connection._id,
 
-                sessionId,
+      platform,
 
-                pid:
-                  payload.pid,
+      status:
+        "starting",
 
-                errorMessage:
-                  "",
-              });
-            },
+      sessionId,
+
+      startedAt:
+        payload.startedAt,
+
+      pid:
+        payload.pid,
+    });
+  },
 
           onPlatformStreaming:
-            async (
-              payload
-            ) => {
-              const connection =
-                connectionByPlatform.get(
-                  payload.platform
-                );
+  async (
+    payload
+  ) => {
+    const platform =
+      payload.platform;
 
-              await updateConnectionStatus({
-                connectionId:
-                  connection?._id,
+    const connection =
+      connectionByPlatform.get(
+        platform
+      );
 
-                platform:
-                  payload.platform,
+    if (!connection) {
+      return;
+    }
 
-                status:
-                  "streaming",
+    await updateConnectionStatus({
+      connectionId:
+        connection._id,
 
-                sessionId,
+      platform,
 
-                pid:
-                  payload.pid,
+      status:
+        "streaming",
 
-                startedAt:
-                  payload.connectedAt ||
-                  new Date(),
+      sessionId,
 
-                errorMessage:
-                  "",
-              });
-            },
+      startedAt:
+        payload.startedAt,
+
+      pid:
+        payload.pid,
+    });
+  },
 
           onPlatformError:
             async (
