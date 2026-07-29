@@ -945,7 +945,11 @@ const safeFps = sanitizeInteger(
 
     "-preset",
     safePreset,
+"-tune",
+"zerolatency",
 
+"-x264-params",
+"threads=1:sync-lookahead=0:rc-lookahead=0",
  
 
     "-pix_fmt",
@@ -979,15 +983,7 @@ const safeFps = sanitizeInteger(
     `${safeVideoBitrate * 2}k`,
 
     "-vf",
-    [
-      `scale=${safeWidth}:${safeHeight}:force_original_aspect_ratio=decrease`,
-
-      `pad=${safeWidth}:${safeHeight}:(ow-iw)/2:(oh-ih)/2`,
-
-      "setsar=1",
-    ].join(
-      ","
-    )
+`scale=${safeWidth}:${safeHeight}:flags=fast_bilinear`
   );
 
   /* =======================================================
@@ -1005,10 +1001,10 @@ const safeFps = sanitizeInteger(
       `${safeAudioBitrate}k`,
 
       "-ar",
-      "44100",
+      "32000",
 
       "-ac",
-      "2"
+      "1"
     );
   } else {
     args.push(
@@ -1060,15 +1056,14 @@ const buildMultiOutputArguments = ({
 
   loop = true,
 
-  videoBitrate = 1000,
+ 
 
-  audioBitrate = 64,
+  audioBitrate = 48,
 
-  width = 640,
-
-  height = 360,
-
-  fps = 15,
+  width = 426,
+height = 240,
+fps = 15,
+videoBitrate = 600,
 
   keyframeInterval = 2,
 
@@ -1111,44 +1106,36 @@ const buildMultiOutputArguments = ({
     );
 
   const safeVideoBitrate =
-    sanitizeInteger(
-      videoBitrate,
-      2000,
-      500,
-      6000
-    );
+  sanitizeInteger(
+    videoBitrate,
+    600,
+    400,
+    6000
+  );
 
-  const safeAudioBitrate =
-    sanitizeInteger(
-      audioBitrate,
-      96,
-      64,
-      192
-    );
+const safeWidth =
+  sanitizeInteger(
+    width,
+    426,
+    320,
+    1920
+  );
 
-  const safeWidth =
-    sanitizeInteger(
-      width,
-      720,
-      360,
-      1920
-    );
+const safeHeight =
+  sanitizeInteger(
+    height,
+    240,
+    180,
+    1920
+  );
 
-  const safeHeight =
-    sanitizeInteger(
-      height,
-      1280,
-      360,
-      1920
-    );
-
-  const safeFps =
-    sanitizeInteger(
-      fps,
-      30,
-      15,
-      60
-    );
+const safeFps =
+  sanitizeInteger(
+    fps,
+    15,
+    10,
+    60
+  );
 
   const safeKeyframeInterval =
     sanitizeInteger(
@@ -5122,13 +5109,13 @@ exports.startMultiStream =
     sessionId =
       generateSessionId(),
 
-   defaultVideoBitrate = 1000,
+   defaultVideoBitrate = 600,
 
 defaultAudioBitrate = 64,
 
-defaultWidth = 640,
+defaultWidth = 426,
 
-defaultHeight = 360,
+defaultHeight = 240,
 
 defaultFps = 15,
 
