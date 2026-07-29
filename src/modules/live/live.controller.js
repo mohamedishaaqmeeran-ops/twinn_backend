@@ -320,37 +320,35 @@ exports.startLive = async (
             false
           ),
 
-        videoBitrate:
-          parseNumber(
-            req.body
-              ?.videoBitrate,
-            2000
-          ),
+      videoBitrate:
+  parseNumber(
+    req.body?.videoBitrate,
+    600
+  ),
 
-        audioBitrate:
-          parseNumber(
-            req.body
-              ?.audioBitrate,
-            96
-          ),
+audioBitrate:
+  parseNumber(
+    req.body?.audioBitrate,
+    48
+  ),
 
-        width:
-          parseNumber(
-            req.body?.width,
-            720
-          ),
+width:
+  parseNumber(
+    req.body?.width,
+    426
+  ),
 
-        height:
-          parseNumber(
-            req.body?.height,
-            1280
-          ),
+height:
+  parseNumber(
+    req.body?.height,
+    240
+  ),
 
-        fps:
-          parseNumber(
-            req.body?.fps,
-            30
-          ),
+fps:
+  parseNumber(
+    req.body?.fps,
+    15
+  ),
 
         keyframeInterval:
           parseNumber(
@@ -624,48 +622,42 @@ exports.addPlatform = async (
             true
           ),
 
-        videoBitrate:
-          parseNumber(
-            req.body
-              ?.videoBitrate,
-            2000
-          ),
+    videoBitrate:
+  parseNumber(
+    req.body?.videoBitrate,
+    600
+  ),
 
-        audioBitrate:
-          parseNumber(
-            req.body
-              ?.audioBitrate,
-            96
-          ),
+audioBitrate:
+  parseNumber(
+    req.body?.audioBitrate,
+    48
+  ),
 
-        width:
-          parseNumber(
-            req.body?.width,
-            720
-          ),
+width:
+  parseNumber(
+    req.body?.width,
+    426
+  ),
 
-        height:
-          parseNumber(
-            req.body?.height,
-            1280
-          ),
+height:
+  parseNumber(
+    req.body?.height,
+    240
+  ),
 
-        fps:
-          parseNumber(
-            req.body?.fps,
-            30
-          ),
+fps:
+  parseNumber(
+    req.body?.fps,
+    15
+  ),
 
-        keyframeInterval:
-          parseNumber(
-            req.body
-              ?.keyframeInterval,
-            2
-          ),
-
-        preset:
-          req.body?.preset ||
-          "veryfast",
+preset:
+  String(
+    req.body?.preset || "ultrafast"
+  )
+    .trim()
+    .toLowerCase(),
 
         metadata:
           parseMetadata(
