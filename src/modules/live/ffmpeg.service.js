@@ -1112,7 +1112,13 @@ videoBitrate = 600,
     400,
     6000
   );
-
+const safeAudioBitrate =
+  sanitizeInteger(
+    audioBitrate,
+    48,
+    32,
+    192
+  );
 const safeWidth =
   sanitizeInteger(
     width,
