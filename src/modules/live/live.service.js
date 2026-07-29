@@ -570,50 +570,35 @@ exports.startLive = async ({
 
   input,
 
-  sourceType =
-    "file",
+  sourceType = "file",
 
-  loop =
-    true,
+  loop = true,
 
-  videoBitrate =
-    2000,
+  videoBitrate = 1000,
 
-  audioBitrate =
-    96,
+  audioBitrate = 64,
 
-  width =
-    720,
+  width = 640,
 
-  height =
-    1280,
+  height = 360,
 
-  fps =
-    30,
+  fps = 15,
 
-  keyframeInterval =
-    2,
+  keyframeInterval = 2,
 
-  preset =
-    "ultrafast",
+  preset = "ultrafast",
 
-  includeAudio =
-    true,
+  includeAudio = true,
 
-  reconnect =
-    true,
+  reconnect = true,
 
-  rollbackOnFailure =
-    false,
+  rollbackOnFailure = false,
 
-  temporaryFile =
-    false,
+  temporaryFile = false,
 
-  sessionId =
-    generateSessionId(),
+  sessionId = generateSessionId(),
 
-  metadata =
-    {},
+  metadata = {},
 }) => {
   if (!userId) {
     throw new Error(
