@@ -643,11 +643,32 @@ exports.logout = async (
    CURRENT USER
 ========================================================= */
 
+/* =========================================================
+   CURRENT USER
+========================================================= */
+
 exports.me = async (
   req,
   res
 ) => {
   try {
+    /*
+     Authentication state must never be cached.
+    */
+    res.set({
+      "Cache-Control":
+        "no-store, no-cache, must-revalidate, proxy-revalidate",
+
+      Pragma:
+        "no-cache",
+
+      Expires:
+        "0",
+
+      "Surrogate-Control":
+        "no-store",
+    });
+
     if (!req.user) {
       return res
         .status(401)
@@ -662,14 +683,16 @@ exports.me = async (
         });
     }
 
-    return res.json({
-      success: true,
+    return res
+      .status(200)
+      .json({
+        success: true,
 
-      user:
-        sanitizeUser(
-          req.user
-        ),
-    });
+        user:
+          sanitizeUser(
+            req.user
+          ),
+      });
   } catch (error) {
     return sendError(
       res,
