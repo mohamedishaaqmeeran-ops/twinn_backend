@@ -18,6 +18,8 @@ const SUPPORTED_PLATFORMS = [
   "kick",
   "twitch",
   "twitter",
+  "loco",
+  "nimo",
 ];
 
 /* =========================================================
@@ -88,6 +90,21 @@ const PLATFORM_CONFIG = {
     streamKeyField: "twitterStreamKey",
     liveStatusField: "twitterLiveStatus",
   },
+
+  loco: {
+    name: "Loco",
+    rtmpUrlField: "locoRtmpUrl",
+    streamKeyField: "locoStreamKey",
+    liveStatusField: "locoLiveStatus",
+  },
+
+  nimo: {
+    name: "Nimo TV",
+    rtmpUrlField: "nimoRtmpUrl",
+    streamKeyField: "nimoStreamKey",
+    liveStatusField: "nimoLiveStatus",
+  },
+
 };
 
 /* =========================================================
@@ -107,6 +124,8 @@ const normalizePlatform = (platform) => {
     return "twitter";
   }
 
+  if (value === "nimotv" || value === "nimo tv") return "nimo";
+  if (value === "locotv" || value === "loco tv") return "loco";
   return value;
 };
 

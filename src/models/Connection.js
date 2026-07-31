@@ -61,6 +61,8 @@ const connectionSchema =
           "kick",
           "twitter",
           "twitch",
+          "loco",
+          "nimo",
         ],
 
         required:
@@ -345,6 +347,58 @@ const connectionSchema =
 
         default:
           "idle",
+      },
+
+      locoRtmpUrl: {
+  type: String,
+  trim: true,
+  default: "",
+},
+
+locoStreamKey: {
+  type: String,
+  select: false,
+  default: "",
+},
+
+locoChannelUrl: {
+  type: String,
+  trim: true,
+  default: "",
+},
+
+locoLiveStatus: {
+  type: String,
+  enum: LIVE_STATUS_VALUES,
+  default: "idle",
+},
+
+      /* =====================================================
+         NIMO TV
+      ===================================================== */
+
+      nimoRtmpUrl: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      nimoStreamKey: {
+        type: String,
+        select: false,
+        default: "",
+      },
+
+      nimoChannelUrl: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+
+      nimoLiveStatus: {
+        type: String,
+        enum: LIVE_STATUS_VALUES,
+        default: "idle",
       },
 
       /* =====================================================
@@ -914,9 +968,7 @@ connectionSchema.index(
 
 connectionSchema.pre(
   "save",
-  function syncGenericRtmpFields(
-    next
-  ) {
+  function syncGenericRtmpFields() {
     const platform =
       this.platform;
 
@@ -985,7 +1037,6 @@ connectionSchema.pre(
         this.streamKey
       );
 
-    next();
   }
 );
 
@@ -1007,6 +1058,8 @@ const PRIVATE_FIELDS = [
   "kickStreamKey",
   "twitchStreamKey",
   "twitterStreamKey",
+  "locoStreamKey",
+  "nimoStreamKey",
 ];
 
 const removePrivateFields =

@@ -16,6 +16,8 @@ const MANUAL_RTMP_PLATFORMS = [
   "kick",
   "twitch",
   "twitter",
+  "loco",
+  "nimo",
 ];
 
 const SUPPORTED_PLATFORMS = [
@@ -202,6 +204,25 @@ const MANUAL_PLATFORM_CONFIG = {
     liveStatusField:
       "twitterLiveStatus",
   },
+
+  loco: {
+    name: "Loco",
+    dashboardUrl: process.env.LOCO_DASHBOARD_URL || "https://loco.gg/",
+    rtmpUrlField: "locoRtmpUrl",
+    streamKeyField: "locoStreamKey",
+    channelUrlField: "locoChannelUrl",
+    liveStatusField: "locoLiveStatus",
+  },
+
+  nimo: {
+    name: "Nimo TV",
+    dashboardUrl: process.env.NIMO_DASHBOARD_URL || "https://www.nimo.tv/",
+    rtmpUrlField: "nimoRtmpUrl",
+    streamKeyField: "nimoStreamKey",
+    channelUrlField: "nimoChannelUrl",
+    liveStatusField: "nimoLiveStatus",
+  },
+
 };
 
 /* =========================================================
@@ -225,6 +246,8 @@ const normalizePlatform =
       return "twitter";
     }
 
+    if (value === "nimotv" || value === "nimo tv") return "nimo";
+    if (value === "locotv" || value === "loco tv") return "loco";
     return value;
   };
 

@@ -41,6 +41,8 @@ const SUPPORTED_PLATFORMS = [
   "kick",
   "twitch",
   "twitter",
+  "loco",
+  "nimo",
 ];
 
 /* =========================================================
@@ -241,6 +243,27 @@ const PLATFORM_STREAM_DEFAULTS = {
     preset:
       "veryfast",
   },
+
+  loco: {
+    width: 1280,
+    height: 720,
+    fps: 30,
+    videoBitrate: 3500,
+    audioBitrate: 128,
+    keyframeInterval: 2,
+    preset: "veryfast",
+  },
+
+  nimo: {
+    width: 1280,
+    height: 720,
+    fps: 30,
+    videoBitrate: 3500,
+    audioBitrate: 128,
+    keyframeInterval: 2,
+    preset: "veryfast",
+  },
+
 };
 
 /* =========================================================
@@ -286,6 +309,8 @@ const normalizePlatform = (
     return "twitter";
   }
 
+  if (value === "nimotv" || value === "nimo tv") return "nimo";
+  if (value === "locotv" || value === "loco tv") return "loco";
   return value;
 };
 
