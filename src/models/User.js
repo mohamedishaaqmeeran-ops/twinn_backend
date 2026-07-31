@@ -137,7 +137,8 @@ const userSchema =
         type: String,
         trim: true,
         maxlength: 30,
-        default: "",
+        unique: true,
+  sparse: true,
       },
 
       brand: {
