@@ -652,9 +652,6 @@ exports.me = async (
   res
 ) => {
   try {
-    /*
-     Authentication state must never be cached.
-    */
     res.set({
       "Cache-Control":
         "no-store, no-cache, must-revalidate, proxy-revalidate",
