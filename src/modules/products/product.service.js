@@ -241,6 +241,10 @@ const CREATE_FIELDS = [
   "description",
   "shortDescription",
 
+  "script",
+  "offer",
+  "objectionHandling",
+
   "category",
   "brand",
   "sku",
@@ -270,13 +274,14 @@ const CREATE_FIELDS = [
 
   "liveEnabled",
   "featured",
-
   "status",
 ];
 
 const UPDATE_FIELDS = [
   ...CREATE_FIELDS,
 ];
+
+
 
 /* =========================================================
    SERVICE ERROR
@@ -1012,19 +1017,22 @@ exports.updateProduct =
     }
 
     const trainingFields = [
-      "name",
-      "description",
-      "shortDescription",
-      "features",
-      "benefits",
-      "specifications",
-      "shippingInformation",
-      "returnPolicy",
-      "warranty",
-      "price",
-      "currency",
-      "stock",
-    ];
+  "name",
+  "description",
+  "shortDescription",
+  "script",
+  "offer",
+  "objectionHandling",
+  "features",
+  "benefits",
+  "specifications",
+  "shippingInformation",
+  "returnPolicy",
+  "warranty",
+  "price",
+  "currency",
+  "stock",
+];
 
     const requiresRetraining =
       trainingFields.some(

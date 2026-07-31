@@ -42,6 +42,26 @@ const productSchema =
         trim: true,
         maxlength: 5000,
       },
+      script: {
+  type: String,
+  trim: true,
+  default: "",
+  maxlength: 10000,
+},
+
+offer: {
+  type: String,
+  trim: true,
+  default: "",
+  maxlength: 2000,
+},
+
+objectionHandling: {
+  type: String,
+  trim: true,
+  default: "",
+  maxlength: 5000,
+},
 
       shortDescription: {
         type: String,

@@ -783,21 +783,26 @@ const buildBody = (
   ========================================================= */
 
   const stringFields = [
-    "name",
-    "description",
-    "shortDescription",
-    "category",
-    "brand",
-    "sku",
-    "slug",
-    "currency",
-    "status",
-    "shippingInformation",
-    "returnPolicy",
-    "warranty",
-    "video",
-    "twinId",
-  ];
+  "name",
+  "description",
+  "shortDescription",
+
+  "script",
+  "offer",
+  "objectionHandling",
+
+  "category",
+  "brand",
+  "sku",
+  "slug",
+  "currency",
+  "status",
+  "shippingInformation",
+  "returnPolicy",
+  "warranty",
+  "video",
+  "twinId",
+];
 
   stringFields.forEach(
     (field) => {

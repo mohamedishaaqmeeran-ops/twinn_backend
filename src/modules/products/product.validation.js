@@ -189,7 +189,26 @@ exports.createProductSchema =
         .min(1)
         .max(5000)
         .required(),
+script:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(10000)
+    .default(""),
 
+offer:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(2000)
+    .default(""),
+
+objectionHandling:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(5000)
+    .default(""),
     shortDescription:
       Joi.string()
         .trim()
@@ -416,7 +435,23 @@ exports.updateProductSchema =
         .trim()
         .min(1)
         .max(5000),
+script:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(10000),
 
+offer:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(2000),
+
+objectionHandling:
+  Joi.string()
+    .trim()
+    .allow("")
+    .max(5000),
     shortDescription:
       Joi.string()
         .trim()
