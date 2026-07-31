@@ -464,28 +464,34 @@ const buildProductFilter = (
   options = {}
 ) => {
   const filter =
-    buildAccessFilter({
-      userId:
-        access.userId,
+    buildAccessFilter(
+      {
+        userId:
+          access.userId,
 
-      role:
-        access.role,
+        role:
+          access.role,
+      },
+      {
+        operation:
+          "read",
 
-      operation:
-        "read",
-
-      ownerId:
-        options.ownerId,
-    });
+        ownerId:
+          options.ownerId,
+      }
+    );
 
   /*
-   Users and content creators must always receive active
-   products only. They cannot override status with a query.
+   Users and content creators only
+   receive active products.
   */
   if (
-    isViewer(access.role)
+    isProductViewer(
+      access.role
+    )
   ) {
-    filter.status = "active";
+    filter.status =
+      "active";
   } else if (
     options.status
   ) {
@@ -503,14 +509,18 @@ const buildProductFilter = (
     };
   }
 
-  if (options.category) {
+  if (
+    options.category
+  ) {
     filter.category =
       String(
         options.category
       ).trim();
   }
 
-  if (options.twinId) {
+  if (
+    options.twinId
+  ) {
     validateObjectId(
       options.twinId,
       "twinId"
@@ -544,7 +554,9 @@ const buildProductFilter = (
     };
   }
 
-  if (options.search) {
+  if (
+    options.search
+  ) {
     const search =
       escapeRegex(
         String(
@@ -552,7 +564,7 @@ const buildProductFilter = (
         ).trim()
       );
 
-    filter.$or = [
+    const searchConditions = [
       {
         name: {
           $regex: search,
@@ -584,11 +596,71 @@ const buildProductFilter = (
         },
       },
     ];
+
+    /*
+     Preserve any existing $or access
+     rules instead of overwriting them.
+    */
+    if (
+      Array.isArray(
+        filter.$or
+      )
+    ) {
+      filter.$and = [
+        {
+          $or:
+            filter.$or,
+        },
+        {
+          $or:
+            searchConditions,
+        },
+      ];
+
+      delete filter.$or;
+    } else {
+      filter.$or =
+        searchConditions;
+    }
   }
 
   return filter;
 };
 
+
+const buildManagementFilter = (
+  productId,
+  access
+) => {
+  validateObjectId(
+    productId,
+    "productId"
+  );
+
+  const accessFilter =
+    buildAccessFilter(
+      {
+        userId:
+          access.userId,
+
+        role:
+          access.role,
+      },
+      {
+        operation:
+          "write",
+
+        ownerId:
+          access.ownerId,
+      }
+    );
+
+  return {
+    ...accessFilter,
+    _id:
+      productId,
+  };
+};
 /* =========================================================
    CREATE PRODUCT
 ========================================================= */
@@ -598,39 +670,14 @@ exports.createProduct =
     access,
     body
   ) => {
-    const {
-      userId,
-      role,
-      ownerId,
-    } = access;
+    const normalizedActor =
+      getActor(access);
 
-    let productOwnerId =
-      userId;
-
-    if (
-      isAdminOrManager(role)
-    ) {
-      if (!ownerId) {
-        throw new ProductServiceError(
-          "ownerId is required when an admin or manager creates a product",
-          400,
-          "PRODUCT_OWNER_REQUIRED"
-        );
-      }
-
-      validateObjectId(
-        ownerId,
-        "ownerId"
+    const productOwnerId =
+      await resolveCreateOwnerId(
+        normalizedActor,
+        access.ownerId
       );
-
-      productOwnerId =
-        ownerId;
-    } else {
-      validateObjectId(
-        userId,
-        "userId"
-      );
-    }
 
     const payload =
       pickAllowedFields(
@@ -638,22 +685,25 @@ exports.createProduct =
         CREATE_FIELDS
       );
 
-    /*
-     Ownership never comes directly from the product payload.
-    */
     payload.userId =
       productOwnerId;
 
-    if (payload.twinId) {
+    if (
+      payload.twinId
+    ) {
       validateObjectId(
         payload.twinId,
         "twinId"
       );
     }
 
-    if (payload.sku) {
+    if (
+      payload.sku
+    ) {
       const normalizedSku =
-        String(payload.sku)
+        String(
+          payload.sku
+        )
           .trim()
           .toUpperCase();
 
@@ -666,7 +716,9 @@ exports.createProduct =
             normalizedSku,
         });
 
-      if (duplicate) {
+      if (
+        duplicate
+      ) {
         throw new ProductServiceError(
           "A product with this SKU already exists",
           409,
@@ -770,21 +822,36 @@ exports.getProduct =
     );
 
     const filter =
-      buildAccessFilter({
-        userId:
-          access.userId,
+      buildAccessFilter(
+        {
+          userId:
+            access.userId,
 
-        role:
-          access.role,
+          role:
+            access.role,
+        },
+        {
+          operation:
+            "read",
 
-        operation:
-          "read",
+          ownerId:
+            access.ownerId,
+        }
+      );
 
-        ownerId:
-          access.ownerId,
-      });
+    filter._id =
+      id;
 
-    filter._id = id;
+    if (
+      isProductViewer(
+        normalizeRole(
+          access.role
+        )
+      )
+    ) {
+      filter.status =
+        "active";
+    }
 
     return Product.findOne(
       filter
@@ -798,15 +865,17 @@ exports.getProduct =
 exports.getProductOrThrow =
   async (
     id,
-    userId
+    access
   ) => {
     const product =
       await exports.getProduct(
         id,
-        userId
+        access
       );
 
-    if (!product) {
+    if (
+      !product
+    ) {
       throw new ProductServiceError(
         "Product not found",
         404,
@@ -992,13 +1061,13 @@ exports.updateProduct =
 exports.updateProductOrThrow =
   async (
     id,
-    userId,
+    access,
     body
   ) => {
     const product =
       await exports.updateProduct(
         id,
-        userId,
+        access,
         body
       );
 
@@ -1018,41 +1087,28 @@ exports.updateProductOrThrow =
 ========================================================= */
 
 exports.deleteProduct =
-  async (
-    id,
-    userId
-  ) => {
-    validateObjectId(
+async (id, access) => {
+
+  const filter =
+    buildManagementFilter(
       id,
-      "productId"
+      access
     );
 
-    validateObjectId(
-      userId,
-      "userId"
-    );
-
-    return Product.findOneAndUpdate(
-      {
-        _id: id,
-        userId,
+  return Product.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        status: "archived",
+        liveEnabled: false,
       },
-      {
-        $set: {
-          status:
-            "archived",
-
-          liveEnabled:
-            false,
-        },
-      },
-      {
-        new: true,
-        runValidators:
-          true,
-      }
-    );
-  };
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+};
 
 /* =========================================================
    PERMANENT DELETE
@@ -1085,40 +1141,29 @@ exports.permanentlyDeleteProduct =
 ========================================================= */
 
 exports.restoreProduct =
-  async (
-    id,
-    userId
-  ) => {
-    validateObjectId(
+async (id, access) => {
+
+  const filter =
+    buildManagementFilter(
       id,
-      "productId"
+      access
     );
 
-    validateObjectId(
-      userId,
-      "userId"
-    );
+  filter.status = "archived";
 
-    return Product.findOneAndUpdate(
-      {
-        _id: id,
-        userId,
-        status:
-          "archived",
+  return Product.findOneAndUpdate(
+    filter,
+    {
+      $set: {
+        status: "inactive",
       },
-      {
-        $set: {
-          status:
-            "inactive",
-        },
-      },
-      {
-        new: true,
-        runValidators:
-          true,
-      }
-    );
-  };
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+};
 
 /* =========================================================
    PRODUCT COUNT
@@ -1126,29 +1171,14 @@ exports.restoreProduct =
 
 exports.getProductCount =
   async (
-    userId,
+    access,
     options = {}
   ) => {
     const filter =
       buildProductFilter(
-        userId,
+        access,
         options
       );
-
-    /*
-     Archived products normally should not count
-     against the creator's active plan limit.
-    */
-
-    if (
-      !options.status &&
-      !options.includeArchived
-    ) {
-      filter.status = {
-        $ne:
-          "archived",
-      };
-    }
 
     return Product.countDocuments(
       filter
