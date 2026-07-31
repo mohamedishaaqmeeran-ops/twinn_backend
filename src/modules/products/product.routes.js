@@ -47,7 +47,6 @@ const {
 
 const {
   normalizeRole,
-  isInternalRole,
 } = require(
   "../../utils/accessControl"
 );
@@ -60,7 +59,9 @@ const upload = require(
    PROTECT ALL PRODUCT ROUTES
 ========================================================= */
 
-router.use(protect);
+router.use(
+  protect
+);
 
 /* =========================================================
    PRODUCT IMAGE UPLOAD
@@ -73,19 +74,25 @@ const uploadProductImages =
   );
 
 /* =========================================================
-   USER HELPERS
+   GET AUTHENTICATED USER ID
 ========================================================= */
 
 const getUserId = (
   req
-) =>
-  req.userId ||
-  req.auth?.userId ||
-  req.user?.id ||
-  req.user?._id;
+) => {
+  const userId =
+    req.userId ||
+    req.auth?.userId ||
+    req.user?.id ||
+    req.user?._id;
+
+  return userId
+    ? String(userId)
+    : "";
+};
 
 /* =========================================================
-   CURRENT ROLE
+   GET CURRENT ROLE
 ========================================================= */
 
 const getCurrentRole = (
@@ -93,62 +100,73 @@ const getCurrentRole = (
 ) =>
   normalizeRole(
     req.userRole ||
-    req.auth?.role ||
-    req.user?.role ||
-    "user"
+      req.auth?.role ||
+      req.user?.role ||
+      "user"
   );
 
 /* =========================================================
-   TARGET PRODUCT OWNER
+   GET PRODUCT ACCESS CONTEXT
+
+   This is the shape expected by product.service.js:
+
+   {
+     userId,
+     role,
+     ownerId
+   }
 ========================================================= */
 
-const getTargetOwnerId = (
+const getProductAccess = (
   req
 ) => {
-  const currentUserId =
+  const userId =
     getUserId(req);
 
   const role =
     getCurrentRole(req);
 
-  /*
-   Admin and manager may create or query products
-   for another creator.
+  if (!userId) {
+    const error =
+      new Error(
+        "Authenticated user ID is missing"
+      );
 
-   Normal users and creators are always restricted
-   to their own account.
-  */
+    error.statusCode =
+      401;
 
-  if (
-    isInternalRole(role)
-  ) {
-    return (
-      req.body?.ownerId ||
-      req.query?.ownerId ||
-      currentUserId
-    );
+    error.code =
+      "AUTHENTICATED_USER_ID_MISSING";
+
+    throw error;
   }
 
-  return currentUserId;
+  return {
+    userId,
+    role,
+
+    /*
+     Admin/manager operations may optionally specify
+     the target brand creator.
+    */
+    ownerId:
+      req.query?.ownerId ||
+      req.body?.ownerId ||
+      undefined,
+  };
 };
 
 /* =========================================================
    LIST PRODUCTS
-
-   All authenticated users with products:read
-   can access the list.
-
-   The controller must filter products based on role:
-   - customer: public/available products
-   - creator: own products
-   - manager/admin: requested owner or all products
 ========================================================= */
 
 router.get(
   "/",
+
   requirePermission(
     PERMISSIONS.PRODUCTS_READ
   ),
+
   controller.list
 );
 
@@ -158,6 +176,14 @@ router.get(
 
 router.post(
   "/",
+
+  /*
+   Current business rule:
+   only Brand Creators create products.
+
+   Admin creation has a separate access problem if this
+   middleware remains enabled.
+  */
   requireBrandCreator,
 
   requireMinimumPlan(
@@ -170,21 +196,26 @@ router.post(
 
   requireResourceLimit(
     "products",
+
     async (
       req
     ) => {
-      const ownerId =
-        getTargetOwnerId(req);
-
-      if (!ownerId) {
-        throw new Error(
-          "Product owner ID is missing"
+      const access =
+        getProductAccess(
+          req
         );
-      }
 
+      /*
+       getProductCount now expects an access object,
+       not a raw MongoDB ID.
+      */
       return productService
         .getProductCount(
-          ownerId
+          access,
+          {
+            includeArchived:
+              false,
+          }
         );
     }
   ),
@@ -216,8 +247,6 @@ router.patch(
 
 /* =========================================================
    PERMANENTLY DELETE PRODUCT
-
-   Admin-only route.
 ========================================================= */
 
 router.delete(
