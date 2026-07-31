@@ -242,6 +242,10 @@ exports.register = async (
    EMAIL LOGIN
 ========================================================= */
 
+/* =========================================================
+   EMAIL LOGIN
+========================================================= */
+
 exports.login = async (
   req,
   res
@@ -265,15 +269,26 @@ exports.login = async (
       result.token
     );
 
-    return res.json({
-      success: true,
+    return res
+      .status(200)
+      .json({
+        success: true,
 
-      message:
-        "Login successful",
+        message:
+          "Login successful",
 
-      user:
-        result.user,
-    });
+        /*
+         Cookie is preferred.
+
+         accessToken is returned as a fallback
+         when cross-site cookies are blocked.
+        */
+        accessToken:
+          result.token,
+
+        user:
+          result.user,
+      });
   } catch (error) {
     return sendError(
       res,
@@ -284,6 +299,10 @@ exports.login = async (
 
 /* =========================================================
    GOOGLE LOGIN
+========================================================= */
+
+/* =========================================================
+   GOOGLE AUTHENTICATION
 ========================================================= */
 
 /* =========================================================
@@ -361,6 +380,9 @@ exports.googleLogin = async (
             getClientIp(req),
         });
 
+    /*
+     Set secure HttpOnly cookie.
+    */
     setAuthCookie(
       res,
       result.token
@@ -384,6 +406,13 @@ exports.googleLogin = async (
           Boolean(
             result.isNewUser
           ),
+
+        /*
+         Fallback for browsers that block the
+         cross-site authentication cookie.
+        */
+        accessToken:
+          result.token,
 
         user:
           result.user,
