@@ -1,23 +1,22 @@
 const {
-  PLANS,
   ALL_PLANS,
   PLAN_ORDER,
+  PLAN_LIMITS,
+  normalizePlan,
+  getPlanLimits,
+  getPlanLimit,
+  getPlanOrder,
+  hasMinimumPlan,
 } = require(
   "../config/plans"
 );
 
 const {
-  normalizePlan,
   isInternalRole,
   isBrandCreator,
-  hasMinimumPlan,
-  getPlanLimits,
-  getPlanLimit,
   hasFeatureAccess,
   canUseResource,
-} = require(
-  "../utils/accessControl"
-);
+} = require("../utils/accessControl");
 
 /* =========================================================
    RESPONSE HELPERS
@@ -276,19 +275,26 @@ const validatePlans = (
     );
   }
 
-  const normalized =
-    flattened
-      .map(normalizePlan)
-      .filter(Boolean);
-
-  const uniquePlans = [
-    ...new Set(normalized),
-  ];
-
   const invalidPlans =
     flattened.filter(
-      (plan) =>
-        !normalizePlan(plan)
+      (plan) => {
+        if (
+          plan === undefined ||
+          plan === null ||
+          String(plan).trim() === ""
+        ) {
+          return true;
+        }
+
+        const normalized =
+          normalizePlan(plan);
+
+        return (
+          PLAN_ORDER[
+            normalized
+          ] === undefined
+        );
+      }
     );
 
   if (invalidPlans.length) {
@@ -299,13 +305,13 @@ const validatePlans = (
     );
   }
 
-  if (!uniquePlans.length) {
-    throw new Error(
-      `${middlewareName} requires at least one valid plan.`
-    );
-  }
-
-  return uniquePlans;
+  return [
+    ...new Set(
+      flattened.map(
+        normalizePlan
+      )
+    ),
+  ];
 };
 
 /* =========================================================
@@ -395,8 +401,9 @@ const requireMinimumPlan =
 
     if (
       !required ||
-      PLAN_ORDER[required] ===
-        undefined
+      PLAN_ORDER[
+        required
+      ] === undefined
     ) {
       throw new Error(
         `Invalid minimum plan: ${minimumPlan}`
