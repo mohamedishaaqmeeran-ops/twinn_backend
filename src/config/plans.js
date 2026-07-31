@@ -1,3 +1,27 @@
+/* =========================================================
+   PLAN NAMES
+========================================================= */
+
+const PLANS = Object.freeze({
+  FREE: "free",
+  STARTER: "starter",
+  PRO: "pro",
+  BUSINESS: "business",
+  AGENCY: "agency",
+});
+
+/* =========================================================
+   ALL PLANS
+========================================================= */
+
+const ALL_PLANS = Object.freeze(
+  Object.values(PLANS)
+);
+
+/* =========================================================
+   PLAN LIMITS
+========================================================= */
+
 const PLAN_LIMITS =
   Object.freeze({
     free: Object.freeze({
@@ -40,20 +64,28 @@ const PLAN_LIMITS =
       Object.freeze({
         twins: Infinity,
         products: Infinity,
-        platforms: Infinity,
+        platforms: 9,
         aiRepliesPerMonth:
           Infinity,
         teamSeats: Infinity,
       }),
   });
 
+/* =========================================================
+   NORMALIZE PLAN
+========================================================= */
+
 const normalizePlan = (
   plan
 ) =>
-  String(plan || "free")
+  String(plan || PLANS.FREE)
     .trim()
     .toLowerCase()
     .replace(/[\s_-]/g, "");
+
+/* =========================================================
+   GET PLAN LIMITS
+========================================================= */
 
 const getPlanLimits = (
   plan
@@ -69,16 +101,31 @@ const getPlanLimits = (
   );
 };
 
+/* =========================================================
+   GET ONE PLAN LIMIT
+========================================================= */
+
 const getPlanLimit = (
   plan,
   resource
-) =>
-  getPlanLimits(plan)[
+) => {
+  const limits =
+    getPlanLimits(plan);
+
+  return limits[
     resource
   ];
+};
+
+/* =========================================================
+   EXPORTS
+========================================================= */
 
 module.exports = {
+  PLANS,
+  ALL_PLANS,
   PLAN_LIMITS,
+
   normalizePlan,
   getPlanLimits,
   getPlanLimit,
