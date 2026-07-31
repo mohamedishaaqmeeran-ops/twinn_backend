@@ -354,16 +354,20 @@ exports.importUsers = async (
     }
 
     const allowedPlans = [
-      "free",
-      "pro",
-      "business",
-      "agency",
-    ];
+  "free",
+  "starter",
+  "pro",
+  "business",
+  "agency",
+];
 
-    const allowedRoles = [
-      "user",
-      "admin",
-    ];
+   const allowedRoles = [
+    "user",
+    "admin",
+    "manager",
+    "contentcreator",
+    "brandcreator",
+];
 
     const seenEmails =
       new Set();
@@ -551,7 +555,7 @@ exports.importUsers = async (
             row: rowNumber,
             email,
             message:
-              "Plan must be free, pro, business, or agency.",
+              "Plan must be free, starter, pro, business or agency.",
           });
 
           continue;
@@ -570,7 +574,7 @@ exports.importUsers = async (
             row: rowNumber,
             email,
             message:
-              "Role must be user or admin.",
+              "Role must be one of: user, admin, manager, contentcreator or brandcreator.",
           });
 
           continue;
@@ -1092,83 +1096,91 @@ exports.toggleUserStatus =
    UPDATE USER PLAN
 ========================================================= */
 
-exports.updateUserPlan =
-  async (req, res) => {
-    try {
-      const plan =
-        normalizeText(
-          req.body.plan
-        ).toLowerCase();
+exports.updateUserPlan = async (req, res) => {
+  try {
+    const plan = normalizeText(
+      req.body.plan
+    ).toLowerCase();
 
-      const allowedPlans = [
-        "free",
-        "pro",
-        "business",
-        "agency",
-      ];
+    const allowedPlans = [
+      "free",
+      "starter",
+      "pro",
+      "business",
+      "agency",
+    ];
 
-      if (
-        !allowedPlans.includes(
-          plan
-        )
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "Plan must be free, pro, business, or agency",
-          });
-      }
+    if (!allowedPlans.includes(plan)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Plan must be free, starter, pro, business or agency.",
+      });
+    }
 
-      const user =
-        await User.findByIdAndUpdate(
-          req.params.id,
-          {
-            plan,
-          },
-          {
-            new: true,
-            runValidators: true,
-          }
-        ).select(
-          "-passwordHash -password -verificationToken -verificationTokenExpiresAt -resetToken -resetTokenExpiresAt"
-        );
+    const updateData = {
+      plan,
+    };
 
-      if (!user) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            message:
-              "User not found",
-          });
-      }
+    if (req.body.billingCycle) {
+      updateData.billingCycle =
+        req.body.billingCycle;
+    }
 
-      return res
-        .status(200)
-        .json({
-          success: true,
-          message:
-            "User plan updated successfully",
-          user,
-        });
-    } catch (error) {
-      console.error(
-        "UPDATE USER PLAN ERROR:",
-        error
+    if (req.body.planStartedAt) {
+      updateData.planStartedAt =
+        new Date(req.body.planStartedAt);
+    }
+
+    if (req.body.planExpiresAt) {
+      updateData.planExpiresAt =
+        new Date(req.body.planExpiresAt);
+    }
+
+    if (req.body.subscriptionStatus) {
+      updateData.subscriptionStatus =
+        req.body.subscriptionStatus;
+    }
+
+    const user =
+      await User.findByIdAndUpdate(
+        req.params.id,
+        updateData,
+        {
+          new: true,
+          runValidators: true,
+        }
+      ).select(
+        "-passwordHash -password -verificationToken -verificationTokenExpiresAt -resetToken -resetTokenExpiresAt"
       );
 
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message:
-            error.message ||
-            "Unable to update user plan",
-        });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
-  };
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "User plan updated successfully",
+      user,
+    });
+  } catch (error) {
+    console.error(
+      "UPDATE USER PLAN ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Unable to update user plan",
+    });
+  }
+};
 
 /* =========================================================
    GENERAL USER UPDATE
@@ -1218,10 +1230,13 @@ exports.updateUser = async (
 
       if (
         ![
-          "free",
-          "pro",
-          "business",
-          "agency",
+          
+    "free",
+    "starter",
+    "pro",
+    "business",
+    "agency",
+
         ].includes(
           updates.plan
         )
@@ -1247,9 +1262,12 @@ exports.updateUser = async (
 
       if (
         ![
-          "user",
-          "admin",
-        ].includes(
+    "user",
+    "admin",
+    "manager",
+    "contentcreator",
+    "brandcreator",
+].includes(
           updates.role
         )
       ) {
@@ -1378,3 +1396,839 @@ exports.deleteUser = async (
       });
   }
 };
+
+
+exports.updateUserRole = async (req, res) => {
+  try {
+    const role = normalizeText(req.body.role).toLowerCase();
+
+    const allowedRoles = [
+      "user",
+      "admin",
+      "manager",
+      "contentcreator",
+      "brandcreator",
+    ];
+
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid user role.",
+      });
+    }
+
+    const user =
+      await User.findByIdAndUpdate(
+        req.params.id,
+        { role },
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found.",
+      });
+    }
+
+    return res.json({
+      success: true,
+      message:
+        "User role updated successfully.",
+      user: sanitizeUser(user),
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+
+/* =========================================================
+   GET ADMIN DASHBOARD STATS
+========================================================= */
+
+exports.getDashboardStats = async (
+  req,
+  res
+) => {
+  try {
+    const [
+      totalUsers,
+      totalWaitlist,
+      totalProducts,
+      activeUsers,
+      blockedUsers,
+      freeUsers,
+      starterUsers,
+      proUsers,
+      businessUsers,
+      agencyUsers,
+      adminUsers,
+      managerUsers,
+      brandCreators,
+      contentCreators,
+      regularUsers,
+    ] = await Promise.all([
+      User.countDocuments(),
+
+      Waitlist.countDocuments(),
+
+      Product.countDocuments(),
+
+      User.countDocuments({
+        $or: [
+          { status: "Active" },
+          { status: "active" },
+          {
+            isBlocked: {
+              $ne: true,
+            },
+          },
+        ],
+      }),
+
+      User.countDocuments({
+        $or: [
+          { status: "Blocked" },
+          { status: "blocked" },
+          { isBlocked: true },
+        ],
+      }),
+
+      User.countDocuments({
+        plan: "free",
+      }),
+
+      User.countDocuments({
+        plan: "starter",
+      }),
+
+      User.countDocuments({
+        plan: "pro",
+      }),
+
+      User.countDocuments({
+        plan: "business",
+      }),
+
+      User.countDocuments({
+        plan: "agency",
+      }),
+
+      User.countDocuments({
+        role: "admin",
+      }),
+
+      User.countDocuments({
+        role: "manager",
+      }),
+
+      User.countDocuments({
+        role: "brandcreator",
+      }),
+
+      User.countDocuments({
+        role: "contentcreator",
+      }),
+
+      User.countDocuments({
+        role: "user",
+      }),
+    ]);
+
+    const recentUsers = await User.find()
+      .select(
+        "-passwordHash -password " +
+          "-verificationToken " +
+          "-verificationTokenExpiresAt " +
+          "-resetToken " +
+          "-resetTokenExpiresAt"
+      )
+      .sort({
+        createdAt: -1,
+      })
+      .limit(10)
+      .lean();
+
+    const recentProducts =
+      await Product.find()
+        .sort({
+          createdAt: -1,
+        })
+        .limit(10)
+        .lean();
+
+    return res.status(200).json({
+      success: true,
+
+      stats: {
+        users: {
+          total: totalUsers,
+          active: activeUsers,
+          blocked: blockedUsers,
+        },
+
+        plans: {
+          free: freeUsers,
+          starter: starterUsers,
+          pro: proUsers,
+          business: businessUsers,
+          agency: agencyUsers,
+        },
+
+        roles: {
+          admin: adminUsers,
+          manager: managerUsers,
+          brandcreator:
+            brandCreators,
+          contentcreator:
+            contentCreators,
+          user: regularUsers,
+        },
+
+        products: {
+          total: totalProducts,
+        },
+
+        waitlist: {
+          total: totalWaitlist,
+        },
+      },
+
+      recentUsers,
+      recentProducts,
+    });
+  } catch (error) {
+    console.error(
+      "GET DASHBOARD STATS ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Unable to load dashboard statistics",
+    });
+  }
+};
+
+/* =========================================================
+   GET SINGLE USER
+========================================================= */
+
+exports.getUserById = async (
+  req,
+  res
+) => {
+  try {
+    const user = await User.findById(
+      req.params.id
+    )
+      .select(
+        "-passwordHash -password " +
+          "-verificationToken " +
+          "-verificationTokenExpiresAt " +
+          "-resetToken " +
+          "-resetTokenExpiresAt"
+      )
+      .lean();
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const products =
+      await Product.find({
+        userId: user._id,
+      })
+        .sort({
+          createdAt: -1,
+        })
+        .lean();
+
+    return res.status(200).json({
+      success: true,
+
+      user: {
+        ...user,
+        products,
+        productsCount:
+          products.length,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "GET USER BY ID ERROR:",
+      error
+    );
+
+    if (
+      error.name ===
+      "CastError"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid user ID",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Unable to fetch user",
+    });
+  }
+};
+
+/* =========================================================
+   EXPORT USERS TO CSV
+========================================================= */
+
+const escapeCsvValue = (
+  value
+) => {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return "";
+  }
+
+  const text =
+    String(value);
+
+  if (
+    text.includes(",") ||
+    text.includes('"') ||
+    text.includes("\n") ||
+    text.includes("\r")
+  ) {
+    return `"${text.replace(
+      /"/g,
+      '""'
+    )}"`;
+  }
+
+  return text;
+};
+
+exports.exportUsers = async (
+  req,
+  res
+) => {
+  try {
+    const filter = {};
+
+    if (req.query.role) {
+      filter.role =
+        normalizeText(
+          req.query.role
+        ).toLowerCase();
+    }
+
+    if (req.query.plan) {
+      filter.plan =
+        normalizeText(
+          req.query.plan
+        ).toLowerCase();
+    }
+
+    if (req.query.status) {
+      const status =
+        normalizeText(
+          req.query.status
+        ).toLowerCase();
+
+      if (
+        status === "blocked"
+      ) {
+        filter.$or = [
+          { status: "Blocked" },
+          { status: "blocked" },
+          { isBlocked: true },
+        ];
+      }
+
+      if (
+        status === "active"
+      ) {
+        filter.$and = [
+          {
+            $or: [
+              { status: "Active" },
+              { status: "active" },
+              {
+                status: {
+                  $exists: false,
+                },
+              },
+            ],
+          },
+          {
+            isBlocked: {
+              $ne: true,
+            },
+          },
+        ];
+      }
+    }
+
+    const users =
+      await User.find(filter)
+        .select(
+          "-passwordHash -password " +
+            "-verificationToken " +
+            "-verificationTokenExpiresAt " +
+            "-resetToken " +
+            "-resetTokenExpiresAt"
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .lean();
+
+    const headers = [
+      "ID",
+      "Name",
+      "Email",
+      "Phone",
+      "Brand",
+      "Role",
+      "Plan",
+      "Status",
+      "Verified",
+      "Credits",
+      "Last Login",
+      "Created At",
+    ];
+
+    const rows = users.map(
+      (user) => {
+        const name =
+          user.name ||
+          user.fullName ||
+          "";
+
+        const phone =
+          user.phone ||
+          user.mobile ||
+          "";
+
+        const brand =
+          user.brand ||
+          user.brandName ||
+          "";
+
+        const status =
+          user.isBlocked === true ||
+          String(
+            user.status || ""
+          ).toLowerCase() ===
+            "blocked"
+            ? "Blocked"
+            : "Active";
+
+        return [
+          user._id,
+          name,
+          user.email || "",
+          phone,
+          brand,
+          user.role || "user",
+          user.plan || "free",
+          status,
+          user.isVerified
+            ? "Yes"
+            : "No",
+          user.credits ?? 0,
+          user.lastLogin
+            ? new Date(
+                user.lastLogin
+              ).toISOString()
+            : "",
+          user.createdAt
+            ? new Date(
+                user.createdAt
+              ).toISOString()
+            : "",
+        ]
+          .map(escapeCsvValue)
+          .join(",");
+      }
+    );
+
+    const csvContent = [
+      headers.join(","),
+      ...rows,
+    ].join("\n");
+
+    const fileName =
+      `users-export-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`;
+
+    res.setHeader(
+      "Content-Type",
+      "text/csv; charset=utf-8"
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${fileName}"`
+    );
+
+    return res.status(200).send(
+      `\uFEFF${csvContent}`
+    );
+  } catch (error) {
+    console.error(
+      "EXPORT USERS ERROR:",
+      error
+    );
+
+    return res.status(500).json({
+      success: false,
+      message:
+        error.message ||
+        "Unable to export users",
+    });
+  }
+};
+
+/* =========================================================
+   UPDATE USER CREDITS
+========================================================= */
+
+exports.updateUserCredits =
+  async (req, res) => {
+    try {
+      const operation =
+        normalizeText(
+          req.body.operation
+        ).toLowerCase();
+
+      const credits =
+        Number(
+          req.body.credits
+        );
+
+      const allowedOperations = [
+        "add",
+        "subtract",
+        "set",
+      ];
+
+      if (
+        !allowedOperations.includes(
+          operation
+        )
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Operation must be add, subtract or set",
+          });
+      }
+
+      if (
+        Number.isNaN(credits) ||
+        credits < 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Credits must be a non-negative number",
+          });
+      }
+
+      const user =
+        await User.findById(
+          req.params.id
+        );
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "User not found",
+          });
+      }
+
+      const currentCredits =
+        Number(
+          user.credits || 0
+        );
+
+      if (
+        operation === "add"
+      ) {
+        user.credits =
+          currentCredits +
+          credits;
+      }
+
+      if (
+        operation ===
+        "subtract"
+      ) {
+        if (
+          credits >
+          currentCredits
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message:
+                "User does not have enough credits",
+            });
+        }
+
+        user.credits =
+          currentCredits -
+          credits;
+      }
+
+      if (
+        operation === "set"
+      ) {
+        user.credits =
+          credits;
+      }
+
+      await user.save();
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          message:
+            "User credits updated successfully",
+          credits:
+            user.credits,
+          user:
+            sanitizeUser(
+              user
+            ),
+        });
+    } catch (error) {
+      console.error(
+        "UPDATE USER CREDITS ERROR:",
+        error
+      );
+
+      if (
+        error.name ===
+        "CastError"
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Invalid user ID",
+          });
+      }
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message:
+            error.message ||
+            "Unable to update user credits",
+        });
+    }
+  };
+
+/* =========================================================
+   RESET USER TRIAL
+========================================================= */
+
+exports.resetUserTrial =
+  async (req, res) => {
+    try {
+      const user =
+        await User.findById(
+          req.params.id
+        );
+
+      if (!user) {
+        return res
+          .status(404)
+          .json({
+            success: false,
+            message:
+              "User not found",
+          });
+      }
+
+      const now =
+        new Date();
+
+      const trialDays =
+        Number(
+          req.body.trialDays ||
+            process.env
+              .FREE_TRIAL_DAYS ||
+            14
+        );
+
+      if (
+        Number.isNaN(
+          trialDays
+        ) ||
+        trialDays <= 0
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Trial days must be greater than zero",
+          });
+      }
+
+      const trialEndsAt =
+        new Date(now);
+
+      trialEndsAt.setDate(
+        trialEndsAt.getDate() +
+          trialDays
+      );
+
+      const schema =
+        user.schema;
+
+      if (
+        schema.path(
+          "trialStartedAt"
+        )
+      ) {
+        user.trialStartedAt =
+          now;
+      }
+
+      if (
+        schema.path(
+          "trialEndsAt"
+        )
+      ) {
+        user.trialEndsAt =
+          trialEndsAt;
+      }
+
+      if (
+        schema.path(
+          "trialEndDate"
+        )
+      ) {
+        user.trialEndDate =
+          trialEndsAt;
+      }
+
+      if (
+        schema.path(
+          "isTrialActive"
+        )
+      ) {
+        user.isTrialActive =
+          true;
+      }
+
+      if (
+        schema.path(
+          "trialUsed"
+        )
+      ) {
+        user.trialUsed =
+          false;
+      }
+
+      if (
+        schema.path(
+          "trialExpired"
+        )
+      ) {
+        user.trialExpired =
+          false;
+      }
+
+      if (
+        schema.path(
+          "subscriptionStatus"
+        )
+      ) {
+        user.subscriptionStatus =
+          "trial";
+      }
+
+      await user.save();
+
+      return res
+        .status(200)
+        .json({
+          success: true,
+          message:
+            `User trial reset for ${trialDays} days`,
+          trial: {
+            startedAt:
+              now,
+            endsAt:
+              trialEndsAt,
+            days:
+              trialDays,
+          },
+          user:
+            sanitizeUser(
+              user
+            ),
+        });
+    } catch (error) {
+      console.error(
+        "RESET USER TRIAL ERROR:",
+        error
+      );
+
+      if (
+        error.name ===
+        "CastError"
+      ) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message:
+              "Invalid user ID",
+          });
+      }
+
+      return res
+        .status(500)
+        .json({
+          success: false,
+          message:
+            error.message ||
+            "Unable to reset user trial",
+        });
+    }
+  };

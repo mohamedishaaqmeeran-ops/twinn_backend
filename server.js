@@ -1,20 +1,13 @@
-require("dotenv")
-  .config();
-const {
-  execFile,
-} = require(
-  "child_process"
-);
-const http =
-  require("http");
+// server.js
 
-const app =
-  require("./src/app");
+require("dotenv").config();
 
-const connectDB =
-  require(
-    "./src/config/db"
-  );
+const http = require("http");
+const mongoose = require("mongoose");
+const { execFile } = require("child_process");
+
+const app = require("./src/app");
+const connectDB = require("./src/config/db");
 
 const {
   createRealtimeSocketServer,
@@ -22,137 +15,234 @@ const {
   "./src/modules/realtime/realtime.websocket"
 );
 
+/* =========================================================
+   CONFIGURATION
+========================================================= */
+
 const PORT =
-  process.env.PORT ||
+  Number(process.env.PORT) ||
   8000;
 
+const HOST =
+  process.env.HOST ||
+  "0.0.0.0";
+
+const FFMPEG_PATH =
+  process.env.FFMPEG_PATH ||
+  "/usr/bin/ffmpeg";
+
+const REQUIRE_FFMPEG =
+  String(
+    process.env.REQUIRE_FFMPEG ||
+      "false"
+  ).toLowerCase() === "true";
+
 /* =========================================================
-   CREATE HTTP SERVER
+   RUNTIME STATE
 ========================================================= */
 
-const server =
-  http.createServer(
-    app
-  );
+let server = null;
+let realtimeSocketServer = null;
+let isShuttingDown = false;
 
 /* =========================================================
-   CREATE WEBSOCKET SERVER
+   DATABASE CONNECTION
 ========================================================= */
 
-const realtimeSocketServer =
-  createRealtimeSocketServer(
-    server
-  );
+const initializeDatabase =
+  async () => {
+    if (
+      typeof connectDB ===
+      "function"
+    ) {
+      await connectDB();
+      return;
+    }
 
+    if (
+      typeof connectDB?.connect ===
+      "function"
+    ) {
+      await connectDB.connect();
+      return;
+    }
 
+    throw new Error(
+      "Invalid database connection module. Export a function or an object with connect()."
+    );
+  };
 
-  /* =========================================================
+/* =========================================================
    VERIFY FFMPEG
 ========================================================= */
 
 const verifyFfmpeg =
-  () => {
-    return new Promise(
+  () =>
+    new Promise(
       (
         resolve,
         reject
       ) => {
-        const ffmpegPath =
-          process.env
-            .FFMPEG_PATH ||
-          "/usr/bin/ffmpeg";
-
         execFile(
-          ffmpegPath,
-          [
-            "-version",
-          ],
+          FFMPEG_PATH,
+          ["-version"],
+          {
+            timeout: 10000,
+          },
           (
             error,
             stdout,
             stderr
           ) => {
             if (error) {
-              console.error(
-                "FFMPEG CHECK ERROR:",
-                error.message
+              const message =
+                `FFmpeg is unavailable at ${FFMPEG_PATH}: ${error.message}`;
+
+              if (
+                REQUIRE_FFMPEG
+              ) {
+                return reject(
+                  new Error(
+                    message
+                  )
+                );
+              }
+
+              console.warn(
+                "FFMPEG WARNING:",
+                message
               );
 
-              reject(
-                new Error(
-                  `FFmpeg is unavailable at ${ffmpegPath}`
-                )
+              console.warn(
+                "Live streaming features requiring FFmpeg may not work."
               );
 
-              return;
+              return resolve(
+                false
+              );
             }
 
-            console.log(
-              `FFmpeg executable: ${ffmpegPath}`
-            );
-
-            console.log(
-              (
+            const versionOutput =
+              String(
                 stdout ||
-                stderr ||
-                ""
+                  stderr ||
+                  ""
               )
                 .split("\n")
-                .slice(0, 3)
-                .join("\n")
+                .slice(0, 2)
+                .join("\n");
+
+            console.log(
+              `FFmpeg executable: ${FFMPEG_PATH}`
             );
+
+            if (
+              versionOutput
+            ) {
+              console.log(
+                versionOutput
+              );
+            }
+
+            return resolve(
+              true
+            );
+          }
+        );
+      }
+    );
+
+/* =========================================================
+   CLOSE WEBSOCKET CLIENTS
+========================================================= */
+
+const closeWebSocketClients =
+  () => {
+    if (
+      !realtimeSocketServer
+    ) {
+      return;
+    }
+
+    realtimeSocketServer
+      .clients
+      ?.forEach(
+        (client) => {
+          try {
+            client.close(
+              1001,
+              "Server shutting down"
+            );
+          } catch (
+            error
+          ) {
+            console.error(
+              "WEBSOCKET CLIENT CLOSE ERROR:",
+              error.message
+            );
+          }
+        }
+      );
+  };
+
+/* =========================================================
+   CLOSE HTTP SERVER
+========================================================= */
+
+const closeHttpServer =
+  () =>
+    new Promise(
+      (resolve) => {
+        if (
+          !server ||
+          !server.listening
+        ) {
+          return resolve();
+        }
+
+        server.close(
+          (error) => {
+            if (error) {
+              console.error(
+                "HTTP SERVER CLOSE ERROR:",
+                error.message
+              );
+            } else {
+              console.log(
+                "HTTP server closed."
+              );
+            }
 
             resolve();
           }
         );
       }
     );
-  };
+
 /* =========================================================
-   START SERVER
+   CLOSE DATABASE
 ========================================================= */
 
-const startServer =
+const closeDatabase =
   async () => {
     try {
       if (
-        typeof connectDB ===
-        "function"
+        mongoose.connection
+          .readyState !== 0
       ) {
-        await connectDB();
-      } else if (
-        typeof connectDB
-          ?.connect ===
-        "function"
-      ) {
-        await connectDB
-          .connect();
-      } else {
-        throw new Error(
-          "Invalid database connection module."
+        await mongoose.connection.close();
+
+        console.log(
+          "MongoDB connection closed."
         );
       }
-await verifyFfmpeg();
-      server.listen(
-        PORT,
-        "0.0.0.0",
-        () => {
-          console.log(
-            `Server running on port ${PORT}`
-          );
-
-          console.log(
-            "Realtime WebSocket available at /api/realtime/socket"
-          );
-        }
-      );
-    } catch (error) {
+    } catch (
+      error
+    ) {
       console.error(
-        "SERVER START ERROR:",
-        error
+        "DATABASE CLOSE ERROR:",
+        error.message
       );
-
-      process.exit(1);
     }
   };
 
@@ -161,51 +251,131 @@ await verifyFfmpeg();
 ========================================================= */
 
 const shutdown =
-  (
-    signal
+  async (
+    signal,
+    exitCode = 0
   ) => {
+    if (
+      isShuttingDown
+    ) {
+      return;
+    }
+
+    isShuttingDown =
+      true;
+
     console.log(
       `${signal} received. Closing server...`
     );
 
-    realtimeSocketServer
-      ?.clients
-      ?.forEach(
-        (
-          client
-        ) => {
-          try {
-            client.close(
-              1001,
-              "Server shutting down"
-            );
-          } catch {
-            // Ignore close error.
-          }
+    const forceExitTimer =
+      setTimeout(
+        () => {
+          console.error(
+            "Forced shutdown after timeout."
+          );
+
+          process.exit(1);
+        },
+        10000
+      );
+
+    forceExitTimer.unref();
+
+    try {
+      closeWebSocketClients();
+
+      await closeHttpServer();
+      await closeDatabase();
+
+      clearTimeout(
+        forceExitTimer
+      );
+
+      process.exit(
+        exitCode
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        "SHUTDOWN ERROR:",
+        error
+      );
+
+      clearTimeout(
+        forceExitTimer
+      );
+
+      process.exit(1);
+    }
+  };
+
+/* =========================================================
+   START SERVER
+========================================================= */
+
+const startServer =
+  async () => {
+    try {
+      await initializeDatabase();
+
+      await verifyFfmpeg();
+
+      server =
+        http.createServer(
+          app
+        );
+
+      realtimeSocketServer =
+        createRealtimeSocketServer(
+          server
+        );
+
+      server.on(
+        "error",
+        (error) => {
+          console.error(
+            "HTTP SERVER ERROR:",
+            error
+          );
         }
       );
 
-    server.close(
-      () => {
-        console.log(
-          "HTTP server closed."
-        );
+      server.listen(
+        PORT,
+        HOST,
+        () => {
+          console.log(
+            `Twinn backend running on http://${HOST}:${PORT}`
+          );
 
-        process.exit(0);
-      }
-    );
+          console.log(
+            "REST API available at /api"
+          );
 
-    setTimeout(
-      () => {
-        console.error(
-          "Forced shutdown."
-        );
+          console.log(
+            "Realtime WebSocket available at /api/realtime/socket"
+          );
+        }
+      );
+    } catch (
+      error
+    ) {
+      console.error(
+        "SERVER START ERROR:",
+        error
+      );
 
-        process.exit(1);
-      },
-      10000
-    ).unref();
+      await closeDatabase();
+
+      process.exit(1);
+    }
   };
+
+/* =========================================================
+   PROCESS EVENTS
+========================================================= */
 
 process.on(
   "SIGTERM",
@@ -222,5 +392,39 @@ process.on(
       "SIGINT"
     )
 );
+
+process.on(
+  "uncaughtException",
+  (error) => {
+    console.error(
+      "UNCAUGHT EXCEPTION:",
+      error
+    );
+
+    shutdown(
+      "UNCAUGHT_EXCEPTION",
+      1
+    );
+  }
+);
+
+process.on(
+  "unhandledRejection",
+  (reason) => {
+    console.error(
+      "UNHANDLED REJECTION:",
+      reason
+    );
+
+    shutdown(
+      "UNHANDLED_REJECTION",
+      1
+    );
+  }
+);
+
+/* =========================================================
+   BOOT
+========================================================= */
 
 startServer();

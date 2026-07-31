@@ -1,5 +1,8 @@
-const express =
-  require("express");
+// modules/realtime/realtime.routes.js
+
+const express = require(
+  "express"
+);
 
 const router =
   express.Router();
@@ -15,6 +18,30 @@ const {
   "../../middleware/auth.middleware"
 );
 
+const {
+  requireBrandCreator,
+} = require(
+  "../../middleware/role.middleware"
+);
+
+const {
+  requireMinimumPlan,
+} = require(
+  "../../middleware/plan.middleware"
+);
+
+const {
+  requirePermission,
+} = require(
+  "../../middleware/permission.middleware"
+);
+
+const {
+  PERMISSIONS,
+} = require(
+  "../../config/permissions"
+);
+
 /* =========================================================
    VALIDATE IMPORTS
 ========================================================= */
@@ -25,6 +52,43 @@ if (
 ) {
   throw new Error(
     "Realtime routes: protect middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof requireBrandCreator !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: requireBrandCreator middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof requireMinimumPlan !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: requireMinimumPlan middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof requirePermission !==
+  "function"
+) {
+  throw new Error(
+    "Realtime routes: requirePermission middleware is not exported correctly."
+  );
+}
+
+if (
+  !PERMISSIONS ||
+  typeof PERMISSIONS !==
+    "object"
+) {
+  throw new Error(
+    "Realtime routes: PERMISSIONS configuration is not exported correctly."
   );
 }
 
@@ -59,40 +123,94 @@ if (
 }
 
 /* =========================================================
-   SESSION ROUTES
+   ALL REALTIME ROUTES REQUIRE AUTHENTICATION
+========================================================= */
+
+router.use(
+  protect
+);
+
+/* =========================================================
+   CREATE REALTIME SESSION
+
+   Allowed:
+   - brandcreator
+   - manager
+   - admin
+
+   Required:
+   - free plan or higher
+   - realtime:create
 ========================================================= */
 
 router.post(
   "/sessions",
-  protect,
+
+  requireBrandCreator,
+
+  requireMinimumPlan(
+    "free"
+  ),
+
+  requirePermission(
+    PERMISSIONS
+      .REALTIME_CREATE
+  ),
+
   realtimeController
     .createSession
 );
 
+/* =========================================================
+   GET REALTIME SESSION
+========================================================= */
+
 router.get(
   "/sessions/:id",
-  protect,
+
+  requireBrandCreator,
+
+  requirePermission(
+    PERMISSIONS
+      .REALTIME_READ
+  ),
+
   realtimeController
     .getSession
 );
 
+/* =========================================================
+   CLOSE REALTIME SESSION
+========================================================= */
+
 router.patch(
   "/sessions/:id/close",
-  protect,
+
+  requireBrandCreator,
+
+  requirePermission(
+    PERMISSIONS
+      .REALTIME_CLOSE
+  ),
+
   realtimeController
     .closeSession
 );
 
-/*
- * Compatibility route for the frontend.
- *
- * The current frontend calls:
- * POST /api/realtime/sessions/:id/end
- */
+/* =========================================================
+   FRONTEND COMPATIBILITY END ROUTE
+========================================================= */
 
 router.post(
   "/sessions/:id/end",
-  protect,
+
+  requireBrandCreator,
+
+  requirePermission(
+    PERMISSIONS
+      .REALTIME_CLOSE
+  ),
+
   realtimeController
     .closeSession
 );

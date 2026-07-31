@@ -242,18 +242,34 @@ exports.verifyPayment = async (req, res) => {
   }
 };
 
-exports.getBalance = async (req, res) => {
+exports.getBalance = async (
+  req,
+  res,
+  next
+) => {
   try {
-    const user = await User.findById(req.user.id).select("credits");
+    const userId =
+      req.user._id ||
+      req.user.id;
 
-    res.json({
+    const user = await User.findById(
+      userId
+    ).select("credits");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        code: "USER_NOT_FOUND",
+        message: "User not found.",
+      });
+    }
+
+    return res.status(200).json({
       success: true,
-      credits: user?.credits || 0,
+      balance:
+        Number(user.credits) || 0,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message || "Unable to fetch credit balance",
-    });
+    next(error);
   }
 };

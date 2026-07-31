@@ -1,9 +1,3 @@
-const Twin =
-  require("../../models/Twin");
-
-const Product =
-  require("../../models/Product");
-
 const service = require("./twin.service");
 
 const {
@@ -123,10 +117,6 @@ exports.saveBasicInfo =
    SAVE APPEARANCE
 ========================================================= */
 
-/* =========================================================
-   SAVE APPEARANCE
-========================================================= */
-
 exports.saveAppearance =
   async (req, res) => {
     try {
@@ -135,14 +125,10 @@ exports.saveAppearance =
 
       const twin =
         await service.saveAppearance({
-          userId:
-            currentUserId,
-
-          payload:
-            req.body,
-
-          file:
-            req.file,
+          userId: currentUserId,
+          role: req.user.role,
+          payload: req.body,
+          file: req.file,
         });
 
       const avatarUrl =
@@ -235,29 +221,18 @@ exports.saveAppearance =
    GET AVATAR VIDEO STATUS
 ========================================================= */
 
-/* =========================================================
-   GET AVATAR VIDEO STATUS
-========================================================= */
-
 exports.getAvatarVideoStatus =
   async (req, res) => {
     try {
-      const userId =
-        req.user.id ||
-        req.user._id;
-
       const twinId =
         req.params.twinId;
 
       const twin =
-        await Twin.findOne({
-          _id: twinId,
-          userId,
-        })
-          .select(
-            "name brandName appearance.avatarUrl appearance.avatarVideoUrl appearance.avatarVideoStatus appearance.avatarVideoError appearance.avatarVideoProductId appearance.avatarVideoProductName appearance.avatarVideoSpeech appearance.avatarVideoGeneratedAt"
-          )
-          .lean();
+        await service.getTwin({
+          userId: getUserId(req),
+          role: req.user.role,
+          twinId,
+        });
 
       if (!twin) {
         return res
@@ -346,10 +321,12 @@ exports.retryAvatarVideo = async (req, res) => {
   try {
     const currentUserId = getUserId(req);
 
-    const twin = await service.getTwin({
-      userId: currentUserId,
-      twinId: req.params.id,
-    });
+    const twin =
+      await service.getTwin({
+        userId: currentUserId,
+        role: req.user.role,
+        twinId: req.params.id,
+      });
 
     const avatarUrl =
       twin.appearance?.avatarUrl || "";
@@ -375,11 +352,20 @@ exports.retryAvatarVideo = async (req, res) => {
       throw error;
     }
 
-    const product = await Product.findOne({
-      _id: productId,
-      userId: currentUserId,
-      status: "active",
-    }).lean();
+    const product =
+      await service.getManageableProduct({
+        userId: currentUserId,
+        role: req.user.role,
+        productId,
+      });
+
+    if (product.status !== "active") {
+      const error = new Error(
+        "The associated product is not active."
+      );
+      error.statusCode = 400;
+      throw error;
+    }
 
     if (!product) {
       const error = new Error(
@@ -419,7 +405,7 @@ exports.retryAvatarVideo = async (req, res) => {
     setImmediate(() => {
       processAvatarVideo({
         twinId: twin._id,
-        userId: currentUserId,
+        userId: twin.userId,
         imageUrl: avatarUrl,
         twin,
         product,
@@ -461,14 +447,10 @@ exports.saveVoice =
     try {
       const twin =
         await service.saveVoice({
-          userId:
-            getUserId(req),
-
-          payload:
-            req.body,
-
-          file:
-            req.file,
+          userId: getUserId(req),
+          role: req.user.role,
+          payload: req.body,
+          file: req.file,
         });
 
       return res
@@ -502,14 +484,10 @@ exports.saveKnowledge =
     try {
       const result =
         await service.saveKnowledge({
-          userId:
-            getUserId(req),
-
-          payload:
-            req.body,
-
-          file:
-            req.file,
+          userId: getUserId(req),
+          role: req.user.role,
+          payload: req.body,
+          file: req.file,
         });
 
       const chunks =
@@ -577,20 +555,12 @@ exports.trainProduct =
     try {
       const result =
         await service.trainProduct({
-          userId:
-            getUserId(req),
-
-          twinId:
-            req.params.id,
-
-          productId:
-            req.params.productId,
-
-          payload:
-            req.body,
-
-          file:
-            req.file,
+          userId: getUserId(req),
+          role: req.user.role,
+          twinId: req.params.id,
+          productId: req.params.productId,
+          payload: req.body,
+          file: req.file,
         });
 
       const chunks =
@@ -897,9 +867,10 @@ exports.getTwins =
   async (req, res) => {
     try {
       const twins =
-        await service.getTwins(
-          getUserId(req)
-        );
+        await service.getTwins({
+          userId: getUserId(req),
+          role: req.user.role,
+        });
 
       return res.json({
         success: true,
@@ -927,11 +898,9 @@ exports.getTwin =
     try {
       const twin =
         await service.getTwin({
-          userId:
-            getUserId(req),
-
-          twinId:
-            req.params.id,
+          userId: getUserId(req),
+          role: req.user.role,
+          twinId: req.params.id,
         });
 
       return res.json({
@@ -1023,14 +992,10 @@ exports.updateTwin =
     try {
       const twin =
         await service.updateTwin({
-          userId:
-            getUserId(req),
-
-          twinId:
-            req.params.id,
-
-          payload:
-            req.body,
+          userId: getUserId(req),
+          role: req.user.role,
+          twinId: req.params.id,
+          payload: req.body,
         });
 
       return res.json({
@@ -1059,11 +1024,9 @@ exports.deleteTwin =
     try {
       const twin =
         await service.deleteTwin({
-          userId:
-            getUserId(req),
-
-          twinId:
-            req.params.id,
+          userId: getUserId(req),
+          role: req.user.role,
+          twinId: req.params.id,
         });
 
       return res.json({
@@ -1092,127 +1055,109 @@ exports.deleteTwin =
 exports.generateProductAvatarVideo =
   async (req, res) => {
     try {
-      const userId =
-        req.user.id ||
-        req.user._id;
-
-      const twinId =
-        req.params.twinId;
-
-      const {
-        productId,
-      } = req.body;
+      const userId = getUserId(req);
+      const twinId = req.params.twinId;
+      const { productId } = req.body;
 
       if (!twinId) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "Twin ID is required.",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Twin ID is required.",
+        });
       }
 
       if (!productId) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "Product ID is required.",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Product ID is required.",
+        });
       }
 
       const twin =
-        await Twin.findOne({
-          _id: twinId,
+        await service.getManageableTwin({
           userId,
-        }).lean();
+          role: req.user.role,
+          twinId,
+        });
 
-      if (!twin) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            message:
-              "AI Twin not found or access denied.",
-          });
-      }
-
-      if (
-        !twin?.appearance
-          ?.avatarUrl
-      ) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message:
-              "Please upload an avatar image first.",
-          });
+      if (!twin.appearance?.avatarUrl) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Please upload an avatar image first.",
+        });
       }
 
       const product =
-        await Product.findOne({
-          _id: productId,
+        await service.getManageableProduct({
           userId,
-          status: "active",
-        }).lean();
+          role: req.user.role,
+          productId,
+        });
 
-      if (!product) {
-        return res
-          .status(404)
-          .json({
-            success: false,
-            message:
-              "Active product not found or access denied.",
-          });
+      if (product.status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: "The selected product is not active.",
+        });
       }
 
-      await Twin.findOneAndUpdate(
-        {
-          _id: twinId,
-          userId,
-        },
-        {
-          $set: {
-            "appearance.avatarVideoStatus":
-              "queued",
+      if (
+        String(twin.userId) !==
+        String(product.userId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "The product and AI Twin must belong to the same brand creator.",
+        });
+      }
 
-            "appearance.avatarVideoError":
-              "",
+      const currentStatus =
+        twin.appearance?.avatarVideoStatus;
 
-            "appearance.avatarVideoProductId":
-              product._id,
-
-            "appearance.avatarVideoProductName":
-              product.name,
+      if (
+        currentStatus === "queued" ||
+        currentStatus === "processing"
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "Avatar video generation is already running.",
+          data: {
+            twinId: twin._id,
+            status: currentStatus,
           },
+        });
+      }
 
-          $addToSet: {
-            productIds:
-              product._id,
-          },
-        }
-      );
+      twin.appearance.avatarVideoStatus =
+        "queued";
+      twin.appearance.avatarVideoError = "";
+      twin.appearance.avatarVideoOperation = "";
+      twin.appearance.avatarVideoProductId =
+        product._id;
+      twin.appearance.avatarVideoProductName =
+        product.name;
 
-      /*
-       * Run generation in the background.
-       * Do not await this process because Veo may take several minutes.
-       */
+      if (
+        !(twin.productIds || []).some(
+          (id) =>
+            String(id) ===
+            String(product._id)
+        )
+      ) {
+        twin.productIds.push(product._id);
+      }
+
+      await twin.save();
 
       processAvatarVideo({
-        twinId:
-          twin._id,
-
-        userId,
-
+        twinId: twin._id,
+        userId: twin.userId,
         imageUrl:
-          twin.appearance
-            .avatarUrl,
-
+          twin.appearance.avatarUrl,
         twin,
-
         product,
       }).catch((error) => {
         console.error(
@@ -1221,42 +1166,22 @@ exports.generateProductAvatarVideo =
         );
       });
 
-      return res
-        .status(202)
-        .json({
-          success: true,
-
-          message:
-            "Brand and product avatar video generation started.",
-
-          data: {
-            twinId:
-              twin._id,
-
-            productId:
-              product._id,
-
-            productName:
-              product.name,
-
-            status:
-              "queued",
-          },
-        });
+      return res.status(202).json({
+        success: true,
+        message:
+          "Brand and product avatar video generation started.",
+        data: {
+          twinId: twin._id,
+          productId: product._id,
+          productName: product.name,
+          status: "queued",
+        },
+      });
     } catch (error) {
-      console.error(
-        "GENERATE PRODUCT AVATAR VIDEO ERROR:",
-        error
+      return fail(
+        res,
+        error,
+        "Unable to start avatar video generation."
       );
-
-      return res
-        .status(500)
-        .json({
-          success: false,
-
-          message:
-            error.message ||
-            "Unable to start avatar video generation.",
-        });
     }
   };

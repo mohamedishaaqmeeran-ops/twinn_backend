@@ -1,236 +1,744 @@
-const authService = require("./auth.service");
-const User = require("../../models/User");
-const Product = require("../../models/Product");
-const Twin = require("../../models/Twin");
+const authService =
+  require("./auth.service");
 
+const sanitizeUser =
+  require(
+    "../../utils/sanitizeUser"
+  );
 
-const cookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-  maxAge: 24 * 60 * 60 * 1000,
-};
+/* =========================================================
+   COOKIE CONFIGURATION
+========================================================= */
 
-exports.register = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+const AUTH_COOKIE_NAME =
+  process.env
+    .AUTH_COOKIE_NAME ||
+  "token";
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
+const isProduction =
+  process.env.NODE_ENV ===
+  "production";
 
-    const { user } = await authService.signupWithEmail(email, password);
-
-    res.status(201).json({
-      success: true,
-      message:
-        "Registered successfully. Please verify your email before login.",
-      user,
-    });
-  } catch (error) {
-    console.log("REGISTER ERROR:", error.message);
-
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    const { user, systemToken } = await authService.loginWithEmail(
-      email,
-      password
-    );
-
-    res.cookie("token", systemToken, cookieOptions);
-
-    res.json({
-      success: true,
-      message: "Login successful",
-      token: systemToken,
-      user,
-    });
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.googleLogin = async (req, res) => {
-  try {
-    const { credential } = req.body;
-
-    if (!credential) {
-      return res.status(400).json({
-        success: false,
-        message: "Google credential is required",
-      });
-    }
-
-    const { user, systemToken } =
-      await authService.verifyAndAuthenticateGoogleUser(credential);
-
-    res.cookie("token", systemToken, cookieOptions);
-
-    res.json({
-      success: true,
-      message: "Google login successful",
-      token: systemToken,
-      user,
-    });
-  } catch (error) {
-    res.status(401).json({
-      success: false,
-      message: "Google login failed",
-    });
-  }
-};
-
-exports.verifyEmail = async (req, res) => {
-  try {
-    const { token } = req.params;
-
-    const result = await authService.verifyEmail(token);
-
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.resendVerification = async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const result = await authService.resendVerificationEmail(email);
-
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
-};
-
-exports.me = async (req, res) => {
-  try {
-    const products = await Product.find({
-      userId: req.user.id,
-    }).sort({ createdAt: -1 });
-
-    const twins = await Twin.find({
-      userId: req.user.id,
-    }).sort({ createdAt: -1 });
-
-    const user = await User.findById(req.user.id)
-      .select(
-        "-passwordHash -verificationToken -resetToken"
-      )
-      .populate(
-        "unlockedAvatars",
-        "name image description category credits voice previewVideo"
-      );
-
-    res.json({
-      success: true,
-      user: {
-        ...user.toObject(),
-        products,
-        twins,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Unable to fetch user data",
-    });
-  }
-};
-
-exports.logout = (req, res) => {
-  res.clearCookie("token", {
+const getCookieOptions =
+  () => ({
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+
+    secure:
+      isProduction,
+
+    sameSite:
+      isProduction
+        ? "none"
+        : "lax",
+
+    maxAge:
+      Number(
+        process.env
+          .AUTH_COOKIE_MAX_AGE ||
+          7 *
+            24 *
+            60 *
+            60 *
+            1000
+      ),
+
     path: "/",
   });
 
-  return res.status(200).json({
-    success: true,
-    message: "Logged out successfully",
+/*
+Do not pass maxAge while clearing.
+Only cookie identity options must match.
+*/
+
+const getClearCookieOptions =
+  () => ({
+    httpOnly: true,
+
+    secure:
+      isProduction,
+
+    sameSite:
+      isProduction
+        ? "none"
+        : "lax",
+
+    path: "/",
   });
-};
 
-exports.forgotPassword = async (req, res) => {
-  try {
-    const { email } = req.body;
+/* =========================================================
+   CLIENT IP
+========================================================= */
 
-    const result = await authService.requestPasswordReset(email);
+const getClientIp = (
+  req
+) => {
+  const forwarded =
+    req.headers[
+      "x-forwarded-for"
+    ];
 
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
+  if (
+    Array.isArray(
+      forwarded
+    )
+  ) {
+    return String(
+      forwarded[0] || ""
+    )
+      .trim()
+      .slice(0, 100);
   }
+
+  return String(
+    forwarded ||
+      req.socket
+        ?.remoteAddress ||
+      req.ip ||
+      ""
+  )
+    .split(",")[0]
+    .trim()
+    .slice(0, 100);
 };
 
-exports.resetPassword = async (req, res) => {
-  try {
-    const { token, newPassword } = req.body;
+/* =========================================================
+   COOKIE HELPERS
+========================================================= */
 
-    const result = await authService.resetPassword(token, newPassword);
-
-    res.json({
-      success: true,
-      ...result,
-    });
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  }
+const setAuthCookie = (
+  res,
+  token
+) => {
+  res.cookie(
+    AUTH_COOKIE_NAME,
+    token,
+    getCookieOptions()
+  );
 };
 
-exports.getUsers = async (req, res) => {
-  try {
-    const users = await User.find().select(
-      "-passwordHash -verificationToken -resetToken"
+const clearAuthCookie = (
+  res
+) => {
+  res.clearCookie(
+    AUTH_COOKIE_NAME,
+    getClearCookieOptions()
+  );
+};
+
+/* =========================================================
+   ERROR RESPONSE
+========================================================= */
+
+const sendError = (
+  res,
+  error
+) => {
+  const statusCode =
+    Number(
+      error?.statusCode
+    ) || 500;
+
+  const isKnownError =
+    Boolean(
+      error?.statusCode
     );
 
-    res.status(200).json({
-      success: true,
-      count: users.length,
-      users,
-    });
-  } catch (error) {
-    res.status(500).json({
+  console.error(
+    "AUTH ERROR:",
+    {
+      name:
+        error?.name,
+      code:
+        error?.code,
+      message:
+        error?.message,
+      stack:
+        process.env
+            .NODE_ENV ===
+          "development"
+          ? error?.stack
+          : undefined,
+    }
+  );
+
+  return res
+    .status(statusCode)
+    .json({
       success: false,
-      message: error.message,
+
+      code:
+        error?.code ||
+        "INTERNAL_SERVER_ERROR",
+
+      message:
+        isKnownError
+          ? error.message
+          : "An internal server error occurred",
     });
+};
+
+/* =========================================================
+   REGISTER
+========================================================= */
+
+exports.register = async (
+  req,
+  res
+) => {
+  try {
+    const result =
+      await authService
+        .signupWithEmail({
+          email:
+            req.body.email,
+
+          password:
+            req.body.password,
+
+          name:
+            req.body.name,
+
+          phone:
+            req.body.phone,
+
+          brand:
+            req.body.brand,
+
+          role:
+            req.body.role,
+        });
+
+    return res
+      .status(201)
+      .json({
+        success: true,
+
+        message:
+          result.emailSent
+            ? "Registered successfully. Please verify your email."
+            : "Registered successfully. Email delivery is currently unavailable; use resend verification later.",
+
+        user:
+          result.user,
+
+        emailSent:
+          Boolean(
+            result.emailSent
+          ),
+
+        trial:
+          result.trial ||
+          null,
+      });
+  } catch (error) {
+    return sendError(
+      res,
+      error
+    );
   }
 };
+
+/* =========================================================
+   EMAIL LOGIN
+========================================================= */
+
+exports.login = async (
+  req,
+  res
+) => {
+  try {
+    const {
+      email,
+      password,
+    } = req.body || {};
+
+    const result =
+      await authService
+        .loginWithEmail(
+          email,
+          password,
+          getClientIp(req)
+        );
+
+    setAuthCookie(
+      res,
+      result.token
+    );
+
+    return res.json({
+      success: true,
+
+      message:
+        "Login successful",
+
+      user:
+        result.user,
+    });
+  } catch (error) {
+    return sendError(
+      res,
+      error
+    );
+  }
+};
+
+/* =========================================================
+   GOOGLE LOGIN
+========================================================= */
+
+/* =========================================================
+   GOOGLE AUTHENTICATION
+========================================================= */
+
+exports.googleLogin = async (
+  req,
+  res
+) => {
+  try {
+    const idToken =
+      req.body?.idToken ||
+      req.body?.credential ||
+      req.body?.token;
+
+    const requestedRole =
+      String(
+        req.body?.role || ""
+      )
+        .trim()
+        .toLowerCase();
+
+    const mode =
+      String(
+        req.body?.mode ||
+          "login"
+      )
+        .trim()
+        .toLowerCase();
+
+    if (!idToken) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          code:
+            "GOOGLE_TOKEN_REQUIRED",
+
+          message:
+            "Google ID token is required",
+        });
+    }
+
+    if (
+      ![
+        "login",
+        "signup",
+      ].includes(mode)
+    ) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+
+          code:
+            "INVALID_GOOGLE_AUTH_MODE",
+
+          message:
+            "Google authentication mode must be login or signup.",
+        });
+    }
+
+    const result =
+      await authService
+        .googleLogin({
+          idToken,
+
+          requestedRole,
+
+          mode,
+
+          ip:
+            getClientIp(req),
+        });
+
+    setAuthCookie(
+      res,
+      result.token
+    );
+
+    return res
+      .status(
+        result.isNewUser
+          ? 201
+          : 200
+      )
+      .json({
+        success: true,
+
+        message:
+          result.isNewUser
+            ? "Google registration successful"
+            : "Google login successful",
+
+        isNewUser:
+          Boolean(
+            result.isNewUser
+          ),
+
+        user:
+          result.user,
+      });
+  } catch (error) {
+    return sendError(
+      res,
+      error
+    );
+  }
+};
+
+/* =========================================================
+   VERIFY EMAIL
+========================================================= */
+
+exports.verifyEmail = async (
+  req,
+  res
+) => {
+  try {
+    const token =
+      req.params
+        ?.token ||
+      req.body
+        ?.token;
+
+    const user =
+      await authService
+        .verifyEmail(
+          token
+        );
+
+    return res.json({
+      success: true,
+
+      message:
+        "Email verified successfully",
+
+      user,
+    });
+  } catch (error) {
+    return sendError(
+      res,
+      error
+    );
+  }
+};
+
+/* =========================================================
+   RESEND VERIFICATION
+========================================================= */
+
+exports.resendVerification =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      await authService
+        .resendVerificationEmail(
+          req.body
+            ?.email
+        );
+
+      return res.json({
+        success: true,
+
+        message:
+          "If the account exists and is unverified, a verification email has been sent.",
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error
+      );
+    }
+  };
+
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+
+exports.forgotPassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      await authService
+        .requestPasswordReset(
+          req.body
+            ?.email
+        );
+
+      return res.json({
+        success: true,
+
+        message:
+          "If the account exists, a password reset email has been sent.",
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error
+      );
+    }
+  };
+
+/* =========================================================
+   RESET PASSWORD
+========================================================= */
+
+exports.resetPassword =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const token =
+        req.body
+          ?.token ||
+        req.params
+          ?.token;
+
+      const newPassword =
+        req.body
+          ?.newPassword ||
+        req.body
+          ?.password;
+
+      await authService
+        .resetPassword(
+          token,
+          newPassword
+        );
+
+      clearAuthCookie(
+        res
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Password reset successfully. Please log in again.",
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error
+      );
+    }
+  };
+
+/* =========================================================
+   LOGOUT
+========================================================= */
+
+/* =========================================================
+   LOGOUT
+========================================================= */
+
+exports.logout = async (
+  req,
+  res
+) => {
+  try {
+    /*
+     Increase tokenVersion so every existing
+     JWT belonging to this user becomes invalid.
+    */
+
+    if (req.user) {
+      req.user.tokenVersion =
+        Number(
+          req.user.tokenVersion ||
+            0
+        ) + 1;
+
+      await req.user.save({
+        validateBeforeSave:
+          false,
+      });
+    }
+
+    clearAuthCookie(
+      res
+    );
+
+    return res
+      .status(200)
+      .json({
+        success: true,
+
+        message:
+          "Logged out successfully",
+      });
+  } catch (error) {
+    console.error(
+      "LOGOUT ERROR:",
+      error
+    );
+
+    /*
+     Always clear the browser cookie even when
+     database token invalidation fails.
+    */
+
+    clearAuthCookie(
+      res
+    );
+
+    return res
+      .status(500)
+      .json({
+        success: false,
+
+        code:
+          "LOGOUT_FAILED",
+
+        message:
+          "Unable to complete logout",
+      });
+  }
+};
+/* =========================================================
+   CURRENT USER
+========================================================= */
+
+exports.me = async (
+  req,
+  res
+) => {
+  try {
+    if (!req.user) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+
+          code:
+            "AUTHENTICATION_REQUIRED",
+
+          message:
+            "Please log in to continue",
+        });
+    }
+
+    return res.json({
+      success: true,
+
+      user:
+        sanitizeUser(
+          req.user
+        ),
+    });
+  } catch (error) {
+    return sendError(
+      res,
+      error
+    );
+  }
+};
+
+/* =========================================================
+   UPDATE PROFILE
+========================================================= */
+
+exports.updateProfile =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const userId =
+        req.userId ||
+        req.user
+          ?._id ||
+        req.user
+          ?.id;
+
+      if (!userId) {
+        return res
+          .status(401)
+          .json({
+            success: false,
+
+            code:
+              "AUTHENTICATION_REQUIRED",
+
+            message:
+              "Please log in to continue",
+          });
+      }
+
+      const user =
+        await authService
+          .updateProfile(
+            userId,
+            req.body || {}
+          );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Profile updated successfully",
+
+        user,
+      });
+    } catch (error) {
+      return sendError(
+        res,
+        error
+      );
+    }
+  };
+
+/* =========================================================
+   SMTP HEALTH CHECK
+   Protect this route with admin middleware.
+========================================================= */
+
+exports.checkEmailConfiguration =
+  async (
+    req,
+    res
+  ) => {
+    try {
+      const configured =
+        await authService
+          .verifyEmailTransporter();
+
+      return res
+        .status(
+          configured
+            ? 200
+            : 503
+        )
+        .json({
+          success:
+            configured,
+
+          configured,
+
+          message:
+            configured
+              ? "Email transporter is configured correctly"
+              : "Email transporter is unavailable or incorrectly configured",
+        });
+    } catch (error) {
+      return sendError(
+        res,
+        error
+      );
+    }
+  };

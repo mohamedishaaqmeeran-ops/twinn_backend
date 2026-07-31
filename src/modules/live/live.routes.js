@@ -14,15 +14,40 @@ const path = require(
   "path"
 );
 
-const liveController =
-  require(
-    "./live.controller"
-  );
+const liveController = require(
+  "./live.controller"
+);
 
-const authMiddleware =
-  require(
-    "../../middleware/auth.middleware"
-  );
+const {
+  protect,
+} = require(
+  "../../middleware/auth.middleware"
+);
+
+const {
+  requireBrandCreator,
+  requireAdmin,
+} = require(
+  "../../middleware/role.middleware"
+);
+
+const {
+  requirePermission,
+} = require(
+  "../../middleware/permission.middleware"
+);
+
+const {
+  requireMinimumPlan,
+} = require(
+  "../../middleware/plan.middleware"
+);
+
+const {
+  validateSocialPlatform,
+} = require(
+  "../../middleware/socialPlatform.middleware"
+);
 
 const router =
   express.Router();
@@ -46,8 +71,7 @@ if (
   fs.mkdirSync(
     uploadDirectory,
     {
-      recursive:
-        true,
+      recursive: true,
     }
   );
 }
@@ -125,7 +149,6 @@ const fileFilter = (
     "video/x-matroska",
     "video/x-msvideo",
     "video/avi",
-    "application/octet-stream",
   ];
 
   const allowedExtensions = [
@@ -193,8 +216,7 @@ const upload =
       fileSize:
         maxLiveVideoSize,
 
-      files:
-        1,
+      files: 1,
     },
   });
 
@@ -286,9 +308,9 @@ const uploadVideo = (
         return res
           .status(400)
           .json({
-            success:
-              false,
-
+            success: false,
+            code:
+              error.code,
             message,
           });
       }
@@ -296,8 +318,9 @@ const uploadVideo = (
       return res
         .status(400)
         .json({
-          success:
-            false,
+          success: false,
+          code:
+            "INVALID_VIDEO_UPLOAD",
 
           message:
             error.message ||
@@ -308,52 +331,26 @@ const uploadVideo = (
 };
 
 /* =========================================================
-   AUTHENTICATION
+   ALL ROUTES REQUIRE AUTHENTICATION
 ========================================================= */
 
 router.use(
-  authMiddleware.protect
+  protect
 );
 
 /* =========================================================
    START MULTI-PLATFORM LIVE
 ========================================================= */
 
-/*
- * Multipart request:
- *
- * video: uploaded video file
- * platforms: ["youtube","kick"]
- * platforms: youtube,kick
- * loop: true
- * includeAudio: true
- * reconnect: true
- * rollbackOnFailure: true
- * width: 1280
- * height: 720
- * fps: 30
- * keyframeInterval: 2
- * videoBitrate: 4500
- * audioBitrate: 128
- * preset: veryfast
- * twinId: optional
- * productId: optional
- * liveId: optional
- *
- * JSON request:
- *
- * {
- *   "inputUrl": "https://example.com/video.mp4",
- *   "platforms": [
- *     "youtube",
- *     "kick"
- *   ],
- *   "sourceType": "url",
- *   "loop": true
- * }
- */
 router.post(
   "/start",
+  requireBrandCreator,
+  requireMinimumPlan(
+    "free"
+  ),
+  requirePermission(
+    "live:create"
+  ),
   uploadVideo,
   liveController.startLive
 );
@@ -362,17 +359,16 @@ router.post(
    ADD PLATFORM TO ACTIVE SESSION
 ========================================================= */
 
-/*
- * POST /api/live/sessions/:sessionId/platforms/:platform
- *
- * {
- *   "inputUrl": "https://example.com/video.mp4",
- *   "sourceType": "url",
- *   "loop": true
- * }
- */
 router.post(
   "/sessions/:sessionId/platforms/:platform",
+  requireBrandCreator,
+  requireMinimumPlan(
+    "free"
+  ),
+  requirePermission(
+    "live:update"
+  ),
+  validateSocialPlatform,
   liveController.addPlatform
 );
 
@@ -380,11 +376,13 @@ router.post(
    STOP ONE PLATFORM IN SESSION
 ========================================================= */
 
-/*
- * POST /api/live/sessions/:sessionId/stop/youtube
- */
 router.post(
   "/sessions/:sessionId/stop/:platform",
+  requireBrandCreator,
+  requirePermission(
+    "live:stop"
+  ),
+  validateSocialPlatform,
   liveController.stopPlatform
 );
 
@@ -392,53 +390,26 @@ router.post(
    STOP COMPLETE SESSION
 ========================================================= */
 
-/*
- * POST /api/live/sessions/:sessionId/stop
- */
 router.post(
   "/sessions/:sessionId/stop",
+  requireBrandCreator,
+  requirePermission(
+    "live:stop"
+  ),
   liveController.stopSession
-);
-
-/* =========================================================
-   GET SESSION STATUS
-========================================================= */
-
-/*
- * GET /api/live/sessions/:sessionId/status
- */
-router.get(
-  "/sessions/:sessionId/status",
-  liveController.getSessionStatus
-);
-
-/* =========================================================
-   GET ALL USER SESSIONS
-========================================================= */
-
-/*
- * GET /api/live/sessions
- */
-router.get(
-  "/sessions",
-  liveController.getSessions
 );
 
 /* =========================================================
    RESTART PLATFORM
 ========================================================= */
 
-/*
- * POST /api/live/restart/youtube
- *
- * {
- *   "inputUrl": "https://example.com/video.mp4",
- *   "sessionId": "optional-session-id",
- *   "sourceType": "url"
- * }
- */
 router.post(
   "/restart/:platform",
+  requireBrandCreator,
+  requirePermission(
+    "live:update"
+  ),
+  validateSocialPlatform,
   liveController.restartPlatform
 );
 
@@ -446,43 +417,62 @@ router.post(
    STOP ONE PLATFORM
 ========================================================= */
 
-/*
- * POST /api/live/stop/youtube
- */
 router.post(
   "/stop/:platform",
+  requireBrandCreator,
+  requirePermission(
+    "live:stop"
+  ),
+  validateSocialPlatform,
   liveController.stopPlatform
 );
 
 /* =========================================================
-   STOP ALL USER STREAMS
+   STOP ALL CREATOR STREAMS
 ========================================================= */
 
-/*
- * POST /api/live/stop
- *
- * Optional body:
- *
- * {
- *   "temporaryFilePaths": [
- *     "/uploads/live/file.mp4"
- *   ]
- * }
- */
 router.post(
   "/stop",
+  requireBrandCreator,
+  requirePermission(
+    "live:stop"
+  ),
   liveController.stopAll
+);
+
+/* =========================================================
+   GET SESSION STATUS
+========================================================= */
+
+router.get(
+  "/sessions/:sessionId/status",
+  requirePermission(
+    "live:read"
+  ),
+  liveController.getSessionStatus
+);
+
+/* =========================================================
+   GET AVAILABLE LIVE SESSIONS
+========================================================= */
+
+router.get(
+  "/sessions",
+  requirePermission(
+    "live:read"
+  ),
+  liveController.getSessions
 );
 
 /* =========================================================
    GET ALL PLATFORM LIVE STATUS
 ========================================================= */
 
-/*
- * GET /api/live/status
- */
 router.get(
   "/status",
+  requirePermission(
+    "live:read"
+  ),
   liveController.getStatus
 );
 
@@ -490,11 +480,12 @@ router.get(
    GET PLATFORM HEALTH
 ========================================================= */
 
-/*
- * GET /api/live/health/youtube
- */
 router.get(
   "/health/:platform",
+  requirePermission(
+    "live:read"
+  ),
+  validateSocialPlatform,
   liveController.getPlatformHealth
 );
 
@@ -502,31 +493,26 @@ router.get(
    GET USER STREAM HEALTH
 ========================================================= */
 
-/*
- * GET /api/live/health
- */
 router.get(
   "/health",
+  requirePermission(
+    "live:read"
+  ),
   liveController.getUserHealth
 );
 
 /* =========================================================
-   RESET STALE STATUSES
+   ADMIN-ONLY SYSTEM ROUTE
 ========================================================= */
 
-/*
- * This endpoint should ideally be admin-only.
- *
- * POST /api/live/reset-stale-statuses
- */
 router.post(
   "/reset-stale-statuses",
+  requireAdmin,
+  requirePermission(
+    "live:admin"
+  ),
   liveController.resetStaleStatuses
 );
-
-/* =========================================================
-   ROUTER
-========================================================= */
 
 module.exports =
   router;

@@ -1,96 +1,706 @@
-const Joi = require("joi");
+const Joi =
+  require("joi");
 
-exports.createProductSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(150).required(),
+/* =========================================================
+   CONSTANTS
+========================================================= */
 
-  description: Joi.string().allow("").default(""),
+const PRODUCT_STATUSES = [
+  "draft",
+  "active",
+  "inactive",
+  "archived",
+];
 
-  category: Joi.string().trim().max(100).allow("").default("General"),
+const TRAINING_STATUSES = [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+];
 
-  brand: Joi.string().trim().max(100).allow("").default(""),
+const CURRENCY_PATTERN =
+  /^[A-Z]{3}$/;
 
-  price: Joi.number().positive().required(),
+const OBJECT_ID_PATTERN =
+  /^[0-9a-fA-F]{24}$/;
 
-  salePrice: Joi.number()
-    .min(0)
-    .max(Joi.ref("price"))
-    .default(0),
+const HTTP_URL_PATTERN =
+  /^https?:\/\/.+/i;
 
-  stock: Joi.number().integer().min(0).default(0),
+/* =========================================================
+   REUSABLE SCHEMAS
+========================================================= */
 
-  images: Joi.array()
-    .items(Joi.string())
-    .default([]),
+const objectIdSchema =
+  Joi.string()
+    .trim()
+    .pattern(
+      OBJECT_ID_PATTERN
+    )
+    .messages({
+      "string.pattern.base":
+        "{{#label}} must be a valid MongoDB ObjectId",
+    });
 
-  tags: Joi.array()
-    .items(Joi.string().trim())
-    .default([]),
+const optionalObjectIdSchema =
+  objectIdSchema
+    .allow(
+      null,
+      ""
+    )
+    .empty("");
 
-  status: Joi.string()
-    .valid("draft", "active", "inactive")
-    .default("active"),
+const textItemSchema =
+  Joi.string()
+    .trim()
+    .min(1)
+    .max(500);
 
-  isFeatured: Joi.boolean().default(false),
+const keywordSchema =
+  Joi.string()
+    .trim()
+    .lowercase()
+    .min(1)
+    .max(100);
 
-  // AI Twin
-  script: Joi.string().allow("").default(""),
+const imageSchema =
+  Joi.string()
+    .trim()
+    .max(2048)
+    .custom(
+      (
+        value,
+        helpers
+      ) => {
+        /*
+         Accept:
+         - Cloudinary URLs
+         - S3/GCS URLs
+         - Local uploaded paths
+         - Relative public paths
+        */
 
-  offer: Joi.string().allow("").default(""),
+        if (
+          HTTP_URL_PATTERN.test(
+            value
+          )
+        ) {
+          return value;
+        }
 
-  objectionHandling: Joi.string().allow("").default(""),
+        if (
+          value.startsWith(
+            "/"
+          ) ||
+          value.startsWith(
+            "uploads/"
+          ) ||
+          value.startsWith(
+            "products/"
+          )
+        ) {
+          return value;
+        }
 
-  // Analytics
-  sales: Joi.number().integer().min(0).default(0),
+        return helpers.error(
+          "string.invalidImage"
+        );
+      }
+    )
+    .messages({
+      "string.invalidImage":
+        "{{#label}} must be a valid image URL or uploaded file path",
+    });
 
-  views: Joi.number().integer().min(0).default(0),
+const specificationsSchema =
+  Joi.object()
+    .pattern(
+      Joi.string()
+        .trim()
+        .min(1)
+        .max(100),
 
-  rating: Joi.number().min(0).max(5).default(0),
+      Joi.alternatives()
+        .try(
+          Joi.string()
+            .trim()
+            .max(500),
 
-  totalReviews: Joi.number().integer().min(0).default(0),
-});
+          Joi.number(),
 
-exports.updateProductSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(150),
+          Joi.boolean()
+        )
+        .custom(
+          (
+            value
+          ) =>
+            String(value)
+        )
+    )
+    .max(100);
 
-  description: Joi.string().allow(""),
+const currencySchema =
+  Joi.string()
+    .trim()
+    .uppercase()
+    .length(3)
+    .pattern(
+      CURRENCY_PATTERN
+    )
+    .messages({
+      "string.length":
+        "Currency must be a three-letter ISO currency code",
 
-  category: Joi.string().trim().max(100).allow(""),
+      "string.pattern.base":
+        "Currency must contain only uppercase letters",
+    });
 
-  brand: Joi.string().trim().max(100).allow(""),
+/* =========================================================
+   CREATE PRODUCT SCHEMA
+========================================================= */
 
-  price: Joi.number().positive(),
+exports.createProductSchema =
+  Joi.object({
+    twinId:
+      optionalObjectIdSchema
+        .default(null),
 
-  salePrice: Joi.number()
-    .min(0)
-    .max(Joi.ref("price")),
+    name:
+      Joi.string()
+        .trim()
+        .min(2)
+        .max(150)
+        .required(),
 
-  stock: Joi.number().integer().min(0),
+    slug:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .max(180)
+        .pattern(
+          /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+        )
+        .optional(),
 
-  images: Joi.array().items(Joi.string()),
+    description:
+      Joi.string()
+        .trim()
+        .min(1)
+        .max(5000)
+        .required(),
 
-  tags: Joi.array().items(Joi.string().trim()),
+    shortDescription:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(300)
+        .default(""),
 
-  status: Joi.string().valid(
-    "draft",
-    "active",
-    "inactive"
-  ),
+    category:
+      Joi.string()
+        .trim()
+        .max(100)
+        .allow("")
+        .empty("")
+        .default(
+          "General"
+        ),
 
-  isFeatured: Joi.boolean(),
+    brand:
+      Joi.string()
+        .trim()
+        .max(100)
+        .allow("")
+        .default(""),
 
-  // AI Twin
-  script: Joi.string().allow(""),
+    sku:
+      Joi.string()
+        .trim()
+        .uppercase()
+        .max(100)
+        .allow("")
+        .empty("")
+        .optional(),
 
-  offer: Joi.string().allow(""),
+    price:
+      Joi.number()
+        .precision(2)
+        .min(0)
+        .required(),
 
-  objectionHandling: Joi.string().allow(""),
+    compareAtPrice:
+      Joi.number()
+        .precision(2)
+        .min(0)
+        .allow(null)
+        .default(null),
 
-  // Analytics
-  sales: Joi.number().integer().min(0),
+    currency:
+      currencySchema
+        .default("INR"),
 
-  views: Joi.number().integer().min(0),
+    stock:
+      Joi.number()
+        .integer()
+        .min(0)
+        .default(0),
 
-  rating: Joi.number().min(0).max(5),
+    trackInventory:
+      Joi.boolean()
+        .default(true),
 
-  totalReviews: Joi.number().integer().min(0),
-}).min(1);
+    allowBackorder:
+      Joi.boolean()
+        .default(false),
+
+    thumbnail:
+      imageSchema
+        .allow("")
+        .default(""),
+
+    image:
+      imageSchema
+        .allow("")
+        .default(""),
+
+    images:
+      Joi.array()
+        .items(
+          imageSchema
+        )
+        .max(5)
+        .unique()
+        .default([]),
+
+    video:
+      Joi.string()
+        .trim()
+        .uri({
+          scheme: [
+            "http",
+            "https",
+          ],
+        })
+        .max(2048)
+        .allow("")
+        .default(""),
+
+    features:
+      Joi.array()
+        .items(
+          textItemSchema
+        )
+        .max(50)
+        .unique()
+        .default([]),
+
+    benefits:
+      Joi.array()
+        .items(
+          textItemSchema
+        )
+        .max(50)
+        .unique()
+        .default([]),
+
+    specifications:
+      specificationsSchema
+        .default({}),
+
+    shippingInformation:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(2000)
+        .default(""),
+
+    returnPolicy:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(2000)
+        .default(""),
+
+    warranty:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(1000)
+        .default(""),
+
+    aiKeywords:
+      Joi.array()
+        .items(
+          keywordSchema
+        )
+        .max(100)
+        .unique()
+        .default([]),
+
+    liveEnabled:
+      Joi.boolean()
+        .default(true),
+
+    featured:
+      Joi.boolean()
+        .default(false),
+
+    status:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .valid(
+          ...PRODUCT_STATUSES.filter(
+            (status) =>
+              status !==
+              "archived"
+          )
+        )
+        .default(
+          "draft"
+        ),
+  })
+    .custom(
+      (
+        value,
+        helpers
+      ) => {
+        if (
+          value.compareAtPrice !==
+            null &&
+          value.compareAtPrice !==
+            undefined &&
+          value.compareAtPrice <
+            value.price
+        ) {
+          return helpers.error(
+            "product.compareAtPrice"
+          );
+        }
+
+        return value;
+      }
+    )
+    .messages({
+      "product.compareAtPrice":
+        "Compare-at price must be greater than or equal to the product price",
+    });
+
+/* =========================================================
+   UPDATE PRODUCT SCHEMA
+========================================================= */
+
+exports.updateProductSchema =
+  Joi.object({
+    twinId:
+      optionalObjectIdSchema,
+
+    name:
+      Joi.string()
+        .trim()
+        .min(2)
+        .max(150),
+
+    slug:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .max(180)
+        .pattern(
+          /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+        ),
+
+    description:
+      Joi.string()
+        .trim()
+        .min(1)
+        .max(5000),
+
+    shortDescription:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(300),
+
+    category:
+      Joi.string()
+        .trim()
+        .max(100)
+        .allow(""),
+
+    brand:
+      Joi.string()
+        .trim()
+        .max(100)
+        .allow(""),
+
+    sku:
+      Joi.string()
+        .trim()
+        .uppercase()
+        .max(100)
+        .allow("")
+        .empty(""),
+
+    price:
+      Joi.number()
+        .precision(2)
+        .min(0),
+
+    compareAtPrice:
+      Joi.number()
+        .precision(2)
+        .min(0)
+        .allow(null),
+
+    currency:
+      currencySchema,
+
+    stock:
+      Joi.number()
+        .integer()
+        .min(0),
+
+    trackInventory:
+      Joi.boolean(),
+
+    allowBackorder:
+      Joi.boolean(),
+
+    thumbnail:
+      imageSchema
+        .allow(""),
+
+    image:
+      imageSchema
+        .allow(""),
+
+    images:
+      Joi.array()
+        .items(
+          imageSchema
+        )
+        .max(5)
+        .unique(),
+
+    video:
+      Joi.string()
+        .trim()
+        .uri({
+          scheme: [
+            "http",
+            "https",
+          ],
+        })
+        .max(2048)
+        .allow(""),
+
+    features:
+      Joi.array()
+        .items(
+          textItemSchema
+        )
+        .max(50)
+        .unique(),
+
+    benefits:
+      Joi.array()
+        .items(
+          textItemSchema
+        )
+        .max(50)
+        .unique(),
+
+    specifications:
+      specificationsSchema,
+
+    shippingInformation:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(2000),
+
+    returnPolicy:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(2000),
+
+    warranty:
+      Joi.string()
+        .trim()
+        .allow("")
+        .max(1000),
+
+    aiKeywords:
+      Joi.array()
+        .items(
+          keywordSchema
+        )
+        .max(100)
+        .unique(),
+
+    liveEnabled:
+      Joi.boolean(),
+
+    featured:
+      Joi.boolean(),
+
+    status:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .valid(
+          "draft",
+          "active",
+          "inactive"
+        ),
+  })
+    .min(1)
+    .custom(
+      (
+        value,
+        helpers
+      ) => {
+        /*
+         This check is possible only when both values
+         are included in the same update request.
+
+         The service must validate the final merged
+         product values when only one price field changes.
+        */
+
+        if (
+          value.price !==
+            undefined &&
+          value.compareAtPrice !==
+            undefined &&
+          value.compareAtPrice !==
+            null &&
+          value.compareAtPrice <
+            value.price
+        ) {
+          return helpers.error(
+            "product.compareAtPrice"
+          );
+        }
+
+        return value;
+      }
+    )
+    .messages({
+      "object.min":
+        "At least one product field must be provided",
+
+      "product.compareAtPrice":
+        "Compare-at price must be greater than or equal to the product price",
+    });
+
+/* =========================================================
+   PRODUCT STATUS VALIDATION
+========================================================= */
+
+exports.updateProductStatusSchema =
+  Joi.object({
+    status:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .valid(
+          "draft",
+          "active",
+          "inactive"
+        )
+        .required(),
+  });
+
+/* =========================================================
+   TRAINING STATUS VALIDATION
+   INTERNAL USE ONLY
+========================================================= */
+
+exports.updateTrainingStatusSchema =
+  Joi.object({
+    trainingStatus:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .valid(
+          ...TRAINING_STATUSES
+        )
+        .required(),
+  });
+
+/* =========================================================
+   PRODUCT LIST QUERY VALIDATION
+========================================================= */
+
+exports.productListQuerySchema =
+  Joi.object({
+    page:
+      Joi.number()
+        .integer()
+        .min(1)
+        .default(1),
+
+    limit:
+      Joi.number()
+        .integer()
+        .min(1)
+        .max(100)
+        .default(20),
+
+    search:
+      Joi.string()
+        .trim()
+        .max(150)
+        .allow(""),
+
+    status:
+      Joi.string()
+        .trim()
+        .lowercase()
+        .valid(
+          ...PRODUCT_STATUSES
+        ),
+
+    category:
+      Joi.string()
+        .trim()
+        .max(100)
+        .allow(""),
+
+    twinId:
+      objectIdSchema,
+
+    sort:
+      Joi.string()
+        .valid(
+          "newest",
+          "oldest",
+          "updated",
+          "name_asc",
+          "name_desc",
+          "price_asc",
+          "price_desc",
+          "stock_asc",
+          "stock_desc"
+        )
+        .default(
+          "newest"
+        ),
+
+    featured:
+      Joi.boolean(),
+
+    liveEnabled:
+      Joi.boolean(),
+
+    inStock:
+      Joi.boolean(),
+
+    includeArchived:
+      Joi.boolean()
+        .default(false),
+  });

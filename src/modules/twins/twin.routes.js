@@ -1,21 +1,35 @@
-const express = require("express");
-
-const router = express.Router();
-
-const controller = require("./twin.controller");
-
-const avatarVideoController = require(
-  "../avatarVideo/avatarVideo.controller"
+const express = require(
+  "express"
 );
 
-const upload = require(
-  "../../config/twinUpload"
-);
+const router =
+  express.Router();
+
+const controller =
+  require(
+    "./twin.controller"
+  );
+
+const avatarVideoController =
+  require(
+    "../avatarVideo/avatarVideo.controller"
+  );
+
+const upload =
+  require(
+    "../../config/twinUpload"
+  );
 
 const {
   protect,
 } = require(
   "../../middleware/auth.middleware"
+);
+
+const {
+  requireBrandCreator,
+} = require(
+  "../../middleware/role.middleware"
 );
 
 /* =========================================================
@@ -25,60 +39,69 @@ const {
 router.use(protect);
 
 /* =========================================================
-   CREATE / SETUP
+   CREATE / SETUP TWIN
 ========================================================= */
 
 router.post(
   "/basic-info",
+  requireBrandCreator,
   controller.saveBasicInfo
 );
 
 router.post(
   "/appearance",
+  requireBrandCreator,
   upload.single("avatar"),
   controller.saveAppearance
 );
 
 router.post(
   "/voice",
+  requireBrandCreator,
   upload.single("sample"),
   controller.saveVoice
 );
 
 router.post(
   "/knowledge",
+  requireBrandCreator,
   upload.single("document"),
   controller.saveKnowledge
 );
 
 /* =========================================================
-   GENERAL ACTIONS
+   TWIN ACTIONS
 ========================================================= */
 
 router.post(
   "/chat",
+  requireBrandCreator,
   controller.chatWithTwin
 );
 
 router.post(
   "/text-to-speech",
+  requireBrandCreator,
   controller.textToSpeech
 );
 
 router.post(
   "/speech-to-text",
+  requireBrandCreator,
   upload.single("audio"),
   controller.speechToText
 );
 
 router.post(
   "/speech-to-speech",
+  requireBrandCreator,
   upload.single("audio"),
   controller.speechToSpeech
 );
 
 router.post(
   "/talking-avatar",
+  requireBrandCreator,
   controller.createTalkingAvatar
 );
 
@@ -88,7 +111,7 @@ router.get(
 );
 
 /* =========================================================
-   LIST TWINS
+   VIEW TWINS
 ========================================================= */
 
 router.get(
@@ -97,11 +120,12 @@ router.get(
 );
 
 /* =========================================================
-   AVATAR VIDEO ROUTES
+   AVATAR VIDEO MANAGEMENT
 ========================================================= */
 
 router.post(
   "/:twinId/avatar-video",
+  requireBrandCreator,
   avatarVideoController.generateAvatarVideo
 );
 
@@ -112,6 +136,7 @@ router.get(
 
 router.post(
   "/:twinId/avatar-video/retry",
+  requireBrandCreator,
   avatarVideoController.retryAvatarVideo
 );
 
@@ -127,6 +152,7 @@ router.get(
 
 router.delete(
   "/:twinId/avatar-videos/:videoId",
+  requireBrandCreator,
   avatarVideoController.deleteAvatarVideo
 );
 
@@ -136,12 +162,13 @@ router.delete(
 
 router.post(
   "/:id/products/:productId/train",
+  requireBrandCreator,
   upload.single("document"),
   controller.trainProduct
 );
 
 /* =========================================================
-   CHILD RESOURCE ROUTES
+   CHILD RESOURCE VIEW ROUTES
 ========================================================= */
 
 router.get(
@@ -165,12 +192,15 @@ router.get(
 
 router.put(
   "/:id",
+  requireBrandCreator,
   controller.updateTwin
 );
 
 router.delete(
   "/:id",
+  requireBrandCreator,
   controller.deleteTwin
 );
 
-module.exports = router;
+module.exports =
+  router;

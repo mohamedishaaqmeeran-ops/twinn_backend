@@ -2,17 +2,25 @@ const express = require("express");
 
 const router = express.Router();
 
-const controller = require("./blog.controller");
+const controller = require(
+  "./blog.controller"
+);
 
-const upload = require("../../middleware/upload.middleware");
+const upload = require(
+  "../../middleware/upload.middleware"
+);
 
 const {
   protect,
-} = require("../../middleware/auth.middleware");
+} = require(
+  "../../middleware/auth.middleware"
+);
 
 const {
-  requireAdmin,
-} = require("../../middleware/admin.middleware");
+  requireManagerOrAdmin,
+} = require(
+  "../../middleware/role.middleware"
+);
 
 /* =========================================================
    PUBLIC ROUTES
@@ -38,38 +46,29 @@ router.get(
   controller.getBlogCategories
 );
 
-router.get(
-  "/:slug",
-  controller.getBlogBySlug
-);
-
-router.get(
-  "/:slug/related",
-  controller.getRelatedBlogs
-);
-
 /* =========================================================
-   ADMIN ROUTES
+   ADMIN / MANAGER ROUTES
+   KEEP THESE BEFORE /:slug
 ========================================================= */
 
 router.get(
   "/admin",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   controller.getAdminBlogs
 );
 
 router.get(
   "/admin/:blogId",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   controller.getAdminBlogById
 );
 
 router.post(
   "/admin",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   upload.single("coverImage"),
   controller.createBlog
 );
@@ -77,7 +76,7 @@ router.post(
 router.patch(
   "/admin/:blogId",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   upload.single("coverImage"),
   controller.updateBlog
 );
@@ -85,22 +84,37 @@ router.patch(
 router.delete(
   "/admin/:blogId",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   controller.deleteBlog
 );
 
 router.patch(
   "/admin/:blogId/publish",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   controller.toggleBlogPublishStatus
 );
 
 router.patch(
   "/admin/:blogId/featured",
   protect,
-  requireAdmin,
+  requireManagerOrAdmin,
   controller.toggleBlogFeatured
+);
+
+/* =========================================================
+   PUBLIC DYNAMIC ROUTES
+   KEEP THESE LAST
+========================================================= */
+
+router.get(
+  "/:slug/related",
+  controller.getRelatedBlogs
+);
+
+router.get(
+  "/:slug",
+  controller.getBlogBySlug
 );
 
 module.exports = router;

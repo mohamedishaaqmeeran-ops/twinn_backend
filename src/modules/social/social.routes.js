@@ -4,288 +4,375 @@ const express = require(
   "express"
 );
 
+const router =
+  express.Router();
+
 const socialController =
   require(
     "./social.controller"
   );
 
-const authMiddleware =
-  require(
-    "../../middleware/auth.middleware"
+const {
+  protect,
+} = require(
+  "../../middleware/auth.middleware"
+);
+
+const {
+  requireBrandCreator,
+} = require(
+  "../../middleware/role.middleware"
+);
+
+const {
+  requirePermission,
+} = require(
+  "../../middleware/permission.middleware"
+);
+
+const {
+  requireMinimumPlan,
+} = require(
+  "../../middleware/plan.middleware"
+);
+
+const {
+  validateSocialPlatform,
+  SUPPORTED_SOCIAL_PLATFORMS,
+} = require(
+  "../../middleware/socialPlatform.middleware"
+);
+
+const {
+  PERMISSIONS,
+} = require(
+  "../../config/permissions"
+);
+
+/* =========================================================
+   VALIDATE IMPORTS
+========================================================= */
+
+if (
+  typeof protect !==
+  "function"
+) {
+  throw new Error(
+    "Social routes: protect middleware is not exported correctly."
   );
+}
 
-const router =
-  express.Router();
+if (
+  typeof requireBrandCreator !==
+  "function"
+) {
+  throw new Error(
+    "Social routes: requireBrandCreator middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof requirePermission !==
+  "function"
+) {
+  throw new Error(
+    "Social routes: requirePermission middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof requireMinimumPlan !==
+  "function"
+) {
+  throw new Error(
+    "Social routes: requireMinimumPlan middleware is not exported correctly."
+  );
+}
+
+if (
+  typeof validateSocialPlatform !==
+  "function"
+) {
+  throw new Error(
+    "Social routes: validateSocialPlatform middleware is not exported correctly."
+  );
+}
 
 /* =========================================================
-   AUTHENTICATION MIDDLEWARE
+   ALL SOCIAL ROUTES REQUIRE LOGIN
+
+   Exception:
+   OAuth callback is public because the social platform
+   redirects directly to this backend endpoint.
 ========================================================= */
 
-const protect =
-  authMiddleware.protect;
-
 /* =========================================================
-   GET ALL CONNECTIONS
-
-   GET /api/social/connections
-========================================================= */
-
-router.get(
-  "/connections",
-  protect,
-  socialController.getConnections
-);
-
-/* =========================================================
-   GET SINGLE CONNECTION
-
-   Examples:
-   GET /api/social/connections/instagram
-   GET /api/social/connections/facebook
-   GET /api/social/connections/youtube
-   GET /api/social/connections/linkedin
-   GET /api/social/connections/rumble
-========================================================= */
-
-router.get(
-  "/connections/:platform",
-  protect,
-  socialController.getConnection
-);
-
-/* =========================================================
-   OPEN PLATFORM STREAM DASHBOARD
-
-   Examples:
-   GET /api/social/manual/instagram/open
-   GET /api/social/manual/facebook/open
-   GET /api/social/manual/youtube/open
-   GET /api/social/manual/linkedin/open
-   GET /api/social/manual/rumble/open
-   GET /api/social/manual/kick/open
-   GET /api/social/manual/twitch/open
-   GET /api/social/manual/twitter/open
-========================================================= */
-
-router.get(
-  "/manual/:platform/open",
-  protect,
-  socialController.openManualPlatform
-);
-
-/* =========================================================
-   SAVE OR UPDATE MANUAL RTMP CONNECTION
-
-   Supported platforms:
-   - Instagram
-   - Facebook
-   - YouTube
-   - LinkedIn
-   - Rumble
-   - Kick
-   - Twitch
-   - Twitter / X
-
-   Examples:
-   PATCH /api/social/connections/instagram/rtmp
-   PATCH /api/social/connections/facebook/rtmp
-   PATCH /api/social/connections/youtube/rtmp
-   PATCH /api/social/connections/linkedin/rtmp
-   PATCH /api/social/connections/rumble/rtmp
-   PATCH /api/social/connections/kick/rtmp
-   PATCH /api/social/connections/twitch/rtmp
-   PATCH /api/social/connections/twitter/rtmp
-========================================================= */
-
-router.patch(
-  "/connections/:platform/rtmp",
-  protect,
-  socialController.saveManualRtmp
-);
-
-/* =========================================================
-   UPDATE CONNECTION PROFILE
-
-   Updates:
-   - username
-   - channelName
-   - channelUrl
-   - avatarUrl
-
-   Example:
-   PATCH /api/social/connections/youtube/profile
-========================================================= */
-
-router.patch(
-  "/connections/:platform/profile",
-  protect,
-  socialController.updateConnectionProfile
-);
-
-/* =========================================================
-   DELETE CONNECTION
-
-   Examples:
-   DELETE /api/social/connections/instagram
-   DELETE /api/social/connections/facebook
-   DELETE /api/social/connections/youtube
-   DELETE /api/social/connections/linkedin
-   DELETE /api/social/connections/rumble
-   DELETE /api/social/connections/kick
-   DELETE /api/social/connections/twitch
-   DELETE /api/social/connections/twitter
-========================================================= */
-
-router.delete(
-  "/connections/:platform",
-  protect,
-  socialController.deleteConnection
-);
-
-/* =========================================================
-   LEGACY INSTAGRAM RTMP ROUTE
-
-   This route is not strictly required because the generic
-   route above already handles Instagram.
-
-   Keep it only if the existing frontend calls:
-   PATCH /api/social/connections/instagram/rtmp
-========================================================= */
-
-/*
- * Do not define another Instagram route here.
- *
- * The generic route:
- *
- * /connections/:platform/rtmp
- *
- * already handles:
- *
- * /connections/instagram/rtmp
- */
-
-/* =========================================================
-   LEGACY OAUTH ROUTES
-
-   OAuth is disabled. These routes can remain temporarily
-   so an older frontend receives a useful error instead of 404.
-
-   Remove them after the frontend is fully changed to RTMP.
-========================================================= */
-
-router.get(
-  "/connect/:platform",
-  protect,
-  socialController.startOAuth
-);
-
-router.get(
-  "/callback/:platform",
-  socialController.oauthCallback
-);
-
-/* =========================================================
-   HEALTH / SUPPORTED PLATFORMS
+   GET SUPPORTED PLATFORMS
 ========================================================= */
 
 router.get(
   "/platforms",
+
   protect,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_READ
+  ),
+
   (
     req,
     res
   ) => {
-    return res.json({
-      success:
-        true,
+    const platformNames =
+      {
+        instagram:
+          "Instagram",
 
-      connectionType:
-        "manual-rtmp",
+        facebook:
+          "Facebook",
 
-      platforms: [
-        {
-          id:
-            "instagram",
+        youtube:
+          "YouTube",
 
-          name:
-            "Instagram",
+        linkedin:
+          "LinkedIn",
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "facebook",
+        rumble:
+          "Rumble",
 
-          name:
-            "Facebook",
+        kick:
+          "Kick",
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "youtube",
+        twitch:
+          "Twitch",
 
-          name:
-            "YouTube",
+        twitter:
+          "Twitter / X",
+      };
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "linkedin",
+    const platforms =
+      SUPPORTED_SOCIAL_PLATFORMS
+        .map(
+          (
+            platform
+          ) => ({
+            id:
+              platform,
 
-          name:
-            "LinkedIn",
+            name:
+              platformNames[
+                platform
+              ] ||
+              platform,
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "rumble",
+            supportsManualRtmp:
+              true,
 
-          name:
-            "Rumble",
+            supportsOAuth:
+              [
+                "instagram",
+                "facebook",
+                "youtube",
+              ].includes(
+                platform
+              ),
+          })
+        );
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "kick",
+    return res
+      .status(200)
+      .json({
+        success: true,
 
-          name:
-            "Kick",
+        connectionType:
+          "manual-rtmp-and-oauth",
 
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "twitch",
-
-          name:
-            "Twitch",
-
-          supportsManualRtmp:
-            true,
-        },
-        {
-          id:
-            "twitter",
-
-          name:
-            "Twitter / X",
-
-          supportsManualRtmp:
-            true,
-        },
-      ],
-    });
+        platforms,
+      });
   }
+);
+
+/* =========================================================
+   VIEW ALL CONNECTIONS
+
+   User/content creator:
+   - May view connections if SOCIAL_READ is assigned.
+
+   Brand creator/manager/admin:
+   - May view their permitted connection data.
+========================================================= */
+
+router.get(
+  "/connections",
+
+  protect,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_READ
+  ),
+
+  socialController
+    .getConnections
+);
+
+/* =========================================================
+   VIEW ONE CONNECTION
+========================================================= */
+
+router.get(
+  "/connections/:platform",
+
+  protect,
+
+  validateSocialPlatform,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_READ
+  ),
+
+  socialController
+    .getConnection
+);
+
+/* =========================================================
+   OPEN MANUAL PLATFORM
+
+   This may return instructions or open the platform page.
+========================================================= */
+
+router.get(
+  "/manual/:platform/open",
+
+  protect,
+
+  requireBrandCreator,
+
+  validateSocialPlatform,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_WRITE
+  ),
+
+  socialController
+    .openManualPlatform
+);
+
+/* =========================================================
+   SAVE MANUAL RTMP SETTINGS
+========================================================= */
+
+router.patch(
+  "/connections/:platform/rtmp",
+
+  protect,
+
+  requireBrandCreator,
+
+  validateSocialPlatform,
+
+  requireMinimumPlan(
+    "free"
+  ),
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_WRITE
+  ),
+
+  socialController
+    .saveManualRtmp
+);
+
+/* =========================================================
+   UPDATE CONNECTION PROFILE
+========================================================= */
+
+router.patch(
+  "/connections/:platform/profile",
+
+  protect,
+
+  requireBrandCreator,
+
+  validateSocialPlatform,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_WRITE
+  ),
+
+  socialController
+    .updateConnectionProfile
+);
+
+/* =========================================================
+   DELETE SOCIAL CONNECTION
+========================================================= */
+
+router.delete(
+  "/connections/:platform",
+
+  protect,
+
+  requireBrandCreator,
+
+  validateSocialPlatform,
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_DELETE
+  ),
+
+  socialController
+    .deleteConnection
+);
+
+/* =========================================================
+   START OAUTH CONNECTION
+========================================================= */
+
+router.get(
+  "/connect/:platform",
+
+  protect,
+
+  requireBrandCreator,
+
+  validateSocialPlatform,
+
+  requireMinimumPlan(
+    "free"
+  ),
+
+  requirePermission(
+    PERMISSIONS
+      .SOCIAL_WRITE
+  ),
+
+  socialController
+    .startOAuth
+);
+
+/* =========================================================
+   OAUTH CALLBACK
+
+   No protect middleware because external OAuth providers
+   redirect directly to this endpoint.
+
+   The controller must validate a signed and expiring state.
+========================================================= */
+
+router.get(
+  "/callback/:platform",
+
+  validateSocialPlatform,
+
+  socialController
+    .oauthCallback
 );
 
 module.exports =
