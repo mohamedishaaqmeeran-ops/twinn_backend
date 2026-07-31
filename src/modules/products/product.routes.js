@@ -40,6 +40,12 @@ const {
 );
 
 const {
+  PERMISSIONS,
+} = require(
+  "../../config/permissions"
+);
+
+const {
   normalizeRole,
   isInternalRole,
 } = require(
@@ -49,6 +55,12 @@ const {
 const upload = require(
   "../../config/productUpload"
 );
+
+/* =========================================================
+   PROTECT ALL PRODUCT ROUTES
+========================================================= */
+
+router.use(protect);
 
 /* =========================================================
    PRODUCT IMAGE UPLOAD
@@ -72,13 +84,18 @@ const getUserId = (
   req.user?.id ||
   req.user?._id;
 
+/* =========================================================
+   CURRENT ROLE
+========================================================= */
+
 const getCurrentRole = (
   req
 ) =>
   normalizeRole(
     req.userRole ||
-      req.auth?.role ||
-      req.user?.role
+    req.auth?.role ||
+    req.user?.role ||
+    "user"
   );
 
 /* =========================================================
@@ -94,6 +111,14 @@ const getTargetOwnerId = (
   const role =
     getCurrentRole(req);
 
+  /*
+   Admin and manager may create or query products
+   for another creator.
+
+   Normal users and creators are always restricted
+   to their own account.
+  */
+
   if (
     isInternalRole(role)
   ) {
@@ -108,46 +133,65 @@ const getTargetOwnerId = (
 };
 
 /* =========================================================
+   LIST PRODUCTS
+
+   All authenticated users with products:read
+   can access the list.
+
+   The controller must filter products based on role:
+   - customer: public/available products
+   - creator: own products
+   - manager/admin: requested owner or all products
+========================================================= */
+
+router.get(
+  "/",
+  requirePermission(
+    PERMISSIONS.PRODUCTS_READ
+  ),
+  controller.list
+);
+
+/* =========================================================
    CREATE PRODUCT
 ========================================================= */
 
 router.post(
   "/",
-  protect,
   requireBrandCreator,
+
   requireMinimumPlan(
     "free"
   ),
+
   requirePermission(
-    "products:write"
+    PERMISSIONS.PRODUCTS_WRITE
   ),
+
   requireResourceLimit(
     "products",
     async (
       req
-    ) =>
-      productService
+    ) => {
+      const ownerId =
+        getTargetOwnerId(req);
+
+      if (!ownerId) {
+        throw new Error(
+          "Product owner ID is missing"
+        );
+      }
+
+      return productService
         .getProductCount(
-          getTargetOwnerId(
-            req
-          )
-        )
+          ownerId
+        );
+    }
   ),
+
   uploadProductImages,
+
   controller.create
-);
-
-/* =========================================================
-   LIST PRODUCTS
-========================================================= */
-
-router.get(
-  "/",
-  protect,
-  requirePermission(
-    "products:read"
-  ),
-  controller.list
 );
 
 /* =========================================================
@@ -156,28 +200,35 @@ router.get(
 
 router.patch(
   "/:id/restore",
-  protect,
+
   requireBrandCreator,
+
   requireMinimumPlan(
     "free"
   ),
+
   requirePermission(
-    "products:write"
+    PERMISSIONS.PRODUCTS_WRITE
   ),
+
   controller.restore
 );
 
 /* =========================================================
    PERMANENTLY DELETE PRODUCT
+
+   Admin-only route.
 ========================================================= */
 
 router.delete(
   "/:id/permanent",
-  protect,
+
   requireAdmin,
+
   requirePermission(
-    "products:delete"
+    PERMISSIONS.PRODUCTS_DELETE
   ),
+
   controller.permanentRemove
 );
 
@@ -187,10 +238,11 @@ router.delete(
 
 router.get(
   "/:id",
-  protect,
+
   requirePermission(
-    "products:read"
+    PERMISSIONS.PRODUCTS_READ
   ),
+
   controller.single
 );
 
@@ -200,15 +252,19 @@ router.get(
 
 router.patch(
   "/:id",
-  protect,
+
   requireBrandCreator,
+
   requireMinimumPlan(
     "free"
   ),
+
   requirePermission(
-    "products:write"
+    PERMISSIONS.PRODUCTS_WRITE
   ),
+
   uploadProductImages,
+
   controller.update
 );
 
@@ -218,15 +274,19 @@ router.patch(
 
 router.put(
   "/:id",
-  protect,
+
   requireBrandCreator,
+
   requireMinimumPlan(
     "free"
   ),
+
   requirePermission(
-    "products:write"
+    PERMISSIONS.PRODUCTS_WRITE
   ),
+
   uploadProductImages,
+
   controller.update
 );
 
@@ -236,11 +296,13 @@ router.put(
 
 router.delete(
   "/:id",
-  protect,
+
   requireBrandCreator,
+
   requirePermission(
-    "products:delete"
+    PERMISSIONS.PRODUCTS_DELETE
   ),
+
   controller.remove
 );
 

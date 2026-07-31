@@ -1,5 +1,6 @@
 const {
   ALL_PERMISSIONS,
+  getEffectivePermissions,
 } = require(
   "../config/permissions"
 );
@@ -27,7 +28,7 @@ const normalizePermission = (
 ========================================================= */
 
 const normalizePermissions = (
-  permissions
+  permissions = []
 ) =>
   [
     ...new Set(
@@ -79,26 +80,50 @@ const validatePermissions = (
 };
 
 /* =========================================================
-   GET USER PERMISSIONS
+   GET USER ROLE
+========================================================= */
+
+const getUserRole = (
+  req
+) =>
+  normalizeRole(
+    req.userRole ||
+      req.auth?.role ||
+      req.user?.role ||
+      "user"
+  );
+
+/* =========================================================
+   GET EFFECTIVE USER PERMISSIONS
+
+   Includes:
+   1. Default role permissions
+   2. Custom user permissions
 ========================================================= */
 
 const getUserPermissions = (
   req
 ) => {
-  const permissions =
-    req.user
-      ?.permissions;
-
-  if (
-    !Array.isArray(
-      permissions
-    )
-  ) {
+  if (!req.user) {
     return [];
   }
 
+  const role =
+    getUserRole(req);
+
+  const customPermissions =
+    Array.isArray(
+      req.user.permissions
+    )
+      ? req.user.permissions
+      : [];
+
   return normalizePermissions(
-    permissions
+    getEffectivePermissions({
+      role,
+      permissions:
+        customPermissions,
+    })
   );
 };
 
@@ -113,10 +138,8 @@ const ensureAuthenticated = (
   if (!req.user) {
     res.status(401).json({
       success: false,
-
       code:
         "AUTHENTICATION_REQUIRED",
-
       message:
         "Authentication is required",
     });
@@ -136,11 +159,7 @@ const hasInternalBypass = (
   req
 ) => {
   const role =
-    normalizeRole(
-      req.userRole ||
-      req.auth?.role ||
-      req.user?.role
-    );
+    getUserRole(req);
 
   return isInternalRole(
     role
@@ -190,11 +209,6 @@ const requirePermission =
         return;
       }
 
-      /*
-       Admin and Manager have
-       unrestricted access.
-      */
-
       if (
         hasInternalBypass(
           req
@@ -223,14 +237,15 @@ const requirePermission =
           .status(403)
           .json({
             success: false,
-
             code:
               "PERMISSION_REQUIRED",
-
             message:
               "You do not have all the required permissions",
 
             ...permissionDebugInfo({
+              role:
+                getUserRole(req),
+
               requiredPermissions:
                 required,
 
@@ -297,14 +312,15 @@ const requireAnyPermission =
           .status(403)
           .json({
             success: false,
-
             code:
               "ANY_PERMISSION_REQUIRED",
-
             message:
               "You do not have any of the required permissions",
 
             ...permissionDebugInfo({
+              role:
+                getUserRole(req),
+
               requiredPermissions:
                 required,
 
@@ -323,11 +339,6 @@ const requireAnyPermission =
 
 const requireInternalPermission =
   (...permissions) => {
-    /*
-     Validate permission names during
-     application startup.
-    */
-
     validatePermissions(
       permissions,
       "requireInternalPermission"
@@ -348,11 +359,7 @@ const requireInternalPermission =
       }
 
       const role =
-        normalizeRole(
-          req.userRole ||
-          req.auth?.role ||
-          req.user?.role
-        );
+        getUserRole(req);
 
       if (
         !isInternalRole(
@@ -363,10 +370,8 @@ const requireInternalPermission =
           .status(403)
           .json({
             success: false,
-
             code:
               "INTERNAL_ROLE_REQUIRED",
-
             message:
               "This action is available only to internal users",
           });
