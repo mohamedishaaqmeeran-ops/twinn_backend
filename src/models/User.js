@@ -1105,141 +1105,150 @@ userSchema.methods
    PRE-VALIDATE
 ========================================================= */
 
+/* =========================================================
+   PRE-VALIDATE
+========================================================= */
+
 userSchema.pre(
   "validate",
-  function (next) {
-    try {
+  function () {
+    if (
+      this.role ===
+      ROLES.BRAND_CREATOR
+    ) {
       if (
-        this.role ===
-        ROLES.BRAND_CREATOR
+        !ALL_PLANS.includes(
+          this.plan
+        )
       ) {
-        if (
-          !ALL_PLANS.includes(
-            this.plan
-          )
-        ) {
-          this.plan =
-            PLANS.FREE;
-        }
+        this.plan =
+          PLANS.FREE;
+      }
 
-        /*
-         Do not automatically mark Free as active.
-         Free is a trial and must have valid trial dates.
-        */
-        if (
-          this.plan ===
-          PLANS.FREE
-        ) {
-          this.billingCycle =
-            null;
-
-          if (
-            this.trialStartedAt &&
-            this.trialExpiresAt
-          ) {
-            this.planStartedAt =
-              this.trialStartedAt;
-
-            this.planExpiresAt =
-              this.trialExpiresAt;
-
-            this.subscriptionStatus =
-              this.isTrialActive
-                ? "trialing"
-                : "expired";
-          } else if (
-            this.subscriptionStatus !==
-            "inactive"
-          ) {
-            this.subscriptionStatus =
-              "inactive";
-          }
-        }
-
-        /*
-         Expire paid plans automatically.
-         Agency without planExpiresAt can stay active.
-        */
-        if (
-          this.plan !==
-            PLANS.FREE &&
-          this.plan !==
-            PLANS.AGENCY &&
-          this.planExpiresAt &&
-          new Date(
-            this.planExpiresAt
-          ).getTime() <=
-            Date.now() &&
-          this.subscriptionStatus ===
-            "active"
-        ) {
-          this.subscriptionStatus =
-            "expired";
-        }
-
-        if (
-          this.plan ===
-            PLANS.AGENCY &&
-          this.subscriptionStatus ===
-            "active"
-        ) {
-          this.billingCycle =
-            this.billingCycle ||
-            null;
-        }
-      } else {
-        /*
-         Non-brand-creator roles do not have plans.
-        */
-        this.plan = null;
+      /*
+       Do not automatically mark Free as active.
+       Free is a trial and must have valid trial dates.
+      */
+      if (
+        this.plan ===
+        PLANS.FREE
+      ) {
         this.billingCycle =
           null;
-        this.planStartedAt =
-          null;
-        this.planExpiresAt =
-          null;
-        this.planCancelledAt =
-          null;
-        this.cancelAtPeriodEnd =
-          false;
-        this.subscriptionStatus =
-          "inactive";
 
-        this.trialStartedAt =
-          null;
-        this.trialExpiresAt =
-          null;
-        this.isTrialUsed =
-          false;
-        this.trialPlan =
-          null;
+        if (
+          this.trialStartedAt &&
+          this.trialExpiresAt
+        ) {
+          this.planStartedAt =
+            this.trialStartedAt;
 
-        this.paymentGateway =
-          null;
-        this.razorpayCustomerId =
-          null;
-        this.razorpaySubscriptionId =
-          null;
-        this.stripeCustomerId =
-          null;
-        this.stripeSubscriptionId =
-          null;
+          this.planExpiresAt =
+            this.trialExpiresAt;
+
+          this.subscriptionStatus =
+            this.isTrialActive
+              ? "trialing"
+              : "expired";
+        } else {
+          this.subscriptionStatus =
+            "inactive";
+        }
       }
 
-      if (this.isBlocked) {
-        this.status =
-          "Blocked";
-      } else if (
-        this.status ===
-        "Blocked"
+      /*
+       Expire paid plans automatically.
+       Agency without planExpiresAt can stay active.
+      */
+      if (
+        this.plan !==
+          PLANS.FREE &&
+        this.plan !==
+          PLANS.AGENCY &&
+        this.planExpiresAt &&
+        new Date(
+          this.planExpiresAt
+        ).getTime() <=
+          Date.now() &&
+        this.subscriptionStatus ===
+          "active"
       ) {
-        this.status =
-          "Active";
+        this.subscriptionStatus =
+          "expired";
       }
 
-      next();
-    } catch (error) {
-      next(error);
+      if (
+        this.plan ===
+          PLANS.AGENCY &&
+        this.subscriptionStatus ===
+          "active"
+      ) {
+        this.billingCycle =
+          this.billingCycle ||
+          null;
+      }
+    } else {
+      /*
+       Non-brand-creator roles do not have plans.
+      */
+      this.plan =
+        null;
+
+      this.billingCycle =
+        null;
+
+      this.planStartedAt =
+        null;
+
+      this.planExpiresAt =
+        null;
+
+      this.planCancelledAt =
+        null;
+
+      this.cancelAtPeriodEnd =
+        false;
+
+      this.subscriptionStatus =
+        "inactive";
+
+      this.trialStartedAt =
+        null;
+
+      this.trialExpiresAt =
+        null;
+
+      this.isTrialUsed =
+        false;
+
+      this.trialPlan =
+        null;
+
+      this.paymentGateway =
+        null;
+
+      this.razorpayCustomerId =
+        null;
+
+      this.razorpaySubscriptionId =
+        null;
+
+      this.stripeCustomerId =
+        null;
+
+      this.stripeSubscriptionId =
+        null;
+    }
+
+    if (this.isBlocked) {
+      this.status =
+        "Blocked";
+    } else if (
+      this.status ===
+        "Blocked"
+    ) {
+      this.status =
+        "Active";
     }
   }
 );
