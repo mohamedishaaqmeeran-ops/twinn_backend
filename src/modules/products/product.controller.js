@@ -486,6 +486,10 @@ const removeEmptyOptionalFields = (
    BUILD PRODUCT BODY
 ========================================================= */
 
+/* =========================================================
+   BUILD PRODUCT BODY
+========================================================= */
+
 const buildBody = (
   req,
   isUpdate = false
@@ -494,9 +498,38 @@ const buildBody = (
     req.body || {};
 
   /*
-   Supports both backend field names and common
-   frontend aliases.
+   Expected price mapping:
+
+   price          = current selling price
+   compareAtPrice = original/higher price
+
+   Frontend aliases:
+
+   salePrice      = current selling price
+   regularPrice   = original price
+   productPrice   = selling price
   */
+
+  const rawSalePrice =
+    source.salePrice;
+
+  const rawCurrentPrice =
+    source.productPrice ??
+    source.price;
+
+  const rawOriginalPrice =
+    source.compareAtPrice ??
+    source.regularPrice;
+
+  const hasSalePrice =
+    rawSalePrice !==
+      undefined &&
+    rawSalePrice !==
+      null &&
+    String(
+      rawSalePrice
+    ).trim() !== "";
+
   const body = {
     ...source,
 
@@ -507,8 +540,7 @@ const buildBody = (
 
     description:
       source.description ??
-      source
-        .productDescription ??
+      source.productDescription ??
       source.details,
 
     shortDescription:
@@ -523,10 +555,23 @@ const buildBody = (
       source.brand ??
       source.brandName,
 
+    /*
+     When salePrice exists:
+     - salePrice becomes price
+     - regular/current price becomes compareAtPrice
+    */
     price:
-      source.price ??
-      source.regularPrice ??
-      source.productPrice,
+      hasSalePrice
+        ? rawSalePrice
+        : rawCurrentPrice,
+
+    compareAtPrice:
+      hasSalePrice
+        ? (
+            rawOriginalPrice ??
+            rawCurrentPrice
+          )
+        : rawOriginalPrice,
 
     stock:
       source.stock ??
@@ -538,24 +583,35 @@ const buildBody = (
       "INR",
   };
 
+  /* =========================================================
+     REMOVE OWNERSHIP AND FRONTEND ALIAS FIELDS
+  ========================================================= */
+
   delete body.ownerId;
   delete body.brandCreatorId;
 
   delete body.productName;
   delete body.title;
+
   delete body.productDescription;
   delete body.details;
+
   delete body.subtitle;
+
   delete body.productCategory;
   delete body.brandName;
+
   delete body.regularPrice;
   delete body.productPrice;
+  delete body.salePrice;
+
   delete body.quantity;
   delete body.inventory;
 
-  /*
-   Number fields.
-  */
+  /* =========================================================
+     NUMBER FIELDS
+  ========================================================= */
+
   for (
     const field of [
       "price",
@@ -579,30 +635,80 @@ const buildBody = (
   }
 
   /*
-   Support salePrice as an alias only when
-   compareAtPrice is not supplied.
-
-   Important:
-   compareAtPrice normally means the original
-   higher price, not the discounted price.
+   Do not send compareAtPrice when it is empty
+   or equal to zero while price is higher.
   */
+
   if (
-    source.salePrice !==
-      undefined &&
-    source.compareAtPrice ===
-      undefined
+    body.compareAtPrice ===
+      undefined ||
+    body.compareAtPrice ===
+      null ||
+    body.compareAtPrice ===
+      ""
   ) {
     body.compareAtPrice =
-      optionalNumber(
-        source.salePrice
-      );
+      null;
   }
 
-  delete body.salePrice;
+  /*
+   Safety validation before Joi.
+
+   compareAtPrice must represent the original
+   price and therefore cannot be lower than price.
+  */
+
+  if (
+    typeof body.price ===
+      "number" &&
+    typeof body.compareAtPrice ===
+      "number" &&
+    body.compareAtPrice <
+      body.price
+  ) {
+    /*
+     Detect inverted frontend values and swap them.
+
+     Example received:
+       price: 5000
+       compareAtPrice: 3999
+
+     Correct result:
+       price: 3999
+       compareAtPrice: 5000
+    */
+
+    const sellingPrice =
+      body.compareAtPrice;
+
+    body.compareAtPrice =
+      body.price;
+
+    body.price =
+      sellingPrice;
+  }
 
   /*
-   Boolean fields.
+   When both prices are identical, the product
+   is not discounted. Remove compare-at price.
   */
+
+  if (
+    typeof body.price ===
+      "number" &&
+    typeof body.compareAtPrice ===
+      "number" &&
+    body.compareAtPrice ===
+      body.price
+  ) {
+    body.compareAtPrice =
+      null;
+  }
+
+  /* =========================================================
+     BOOLEAN FIELDS
+  ========================================================= */
+
   for (
     const field of [
       "trackInventory",
@@ -626,9 +732,10 @@ const buildBody = (
     }
   }
 
-  /*
-   Array fields.
-  */
+  /* =========================================================
+     ARRAY FIELDS
+  ========================================================= */
+
   for (
     const field of [
       "features",
@@ -652,9 +759,10 @@ const buildBody = (
     }
   }
 
-  /*
-   Specifications object.
-  */
+  /* =========================================================
+     SPECIFICATIONS
+  ========================================================= */
+
   const specifications =
     objectField(
       source.specifications
@@ -670,9 +778,10 @@ const buildBody = (
     delete body.specifications;
   }
 
-  /*
-   Normalize strings.
-  */
+  /* =========================================================
+     NORMALIZE STRING FIELDS
+  ========================================================= */
+
   const stringFields = [
     "name",
     "description",
@@ -720,9 +829,10 @@ const buildBody = (
         .toLowerCase();
   }
 
-  /*
-   Uploaded images.
-  */
+  /* =========================================================
+     UPLOADED IMAGES
+  ========================================================= */
+
   const uploaded =
     Array.isArray(
       req.files
@@ -753,6 +863,16 @@ const buildBody = (
       body.images =
         uploaded;
     }
+
+    /*
+     Your Joi schema allows only 5 images.
+    */
+
+    body.images =
+      body.images.slice(
+        0,
+        5
+      );
 
     body.thumbnail =
       body.thumbnail ||
