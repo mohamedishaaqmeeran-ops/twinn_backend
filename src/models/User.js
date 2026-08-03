@@ -139,6 +139,7 @@ const userSchema =
         maxlength: 30,
         unique: true,
   sparse: true,
+  default: undefined,
       },
 
       brand: {
