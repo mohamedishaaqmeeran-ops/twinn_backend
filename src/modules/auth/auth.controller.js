@@ -160,7 +160,16 @@ const sendError = (
           : undefined,
     }
   );
+if (error?.code === 11000) {
+  const field = Object.keys(error.keyValue || {})[0];
 
+  return res.status(409).json({
+    success: false,
+    code: "DUPLICATE_FIELD",
+    field,
+    message: `${field} already exists`,
+  });
+}
   return res
     .status(statusCode)
     .json({

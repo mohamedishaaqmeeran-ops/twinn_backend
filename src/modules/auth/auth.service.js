@@ -395,15 +395,25 @@ class AuthService {
      EMAIL REGISTRATION
   ======================================================= */
 
-  async signupWithEmail({
-    email,
-    password,
-    name = "",
-    phone = "",
-    brand = "",
-    role =
-      ROLES.BRAND_CREATOR,
-  }) {
+ async signupWithEmail({
+  email,
+  password,
+  name,
+  phone,
+  brand,
+  role = ROLES.BRAND_CREATOR,
+}) {
+  const normalizedName =
+  String(name || "")
+    .trim();
+
+const normalizedPhone =
+  String(phone || "")
+    .trim();
+
+const normalizedBrand =
+  String(brand || "")
+    .trim();
     const normalizedEmail =
       String(email || "")
         .trim()
@@ -481,46 +491,42 @@ const safeRole =
     const rawVerificationToken =
       this.generateRandomToken();
 
-    const user =
-      new User({
-        name:
-          String(name || "")
-            .trim(),
+    const userData = {
+  email: normalizedEmail,
 
-        phone:
-          String(phone || "")
-            .trim(),
+  passwordHash: await bcrypt.hash(
+    normalizedPassword,
+    BCRYPT_ROUNDS
+  ),
 
-        brand:
-          String(brand || "")
-            .trim(),
+  role: safeRole,
 
-        email:
-          normalizedEmail,
+  authProvider: "local",
 
-        passwordHash:
-          await bcrypt.hash(
-            normalizedPassword,
-            BCRYPT_ROUNDS
-          ),
+  verificationToken: this.hashToken(
+    rawVerificationToken
+  ),
 
-        role:
-          safeRole,
+  verificationTokenExpiresAt: new Date(
+    Date.now() + VERIFICATION_TOKEN_DURATION
+  ),
 
-        verificationToken:
-          this.hashToken(
-            rawVerificationToken
-          ),
+  isVerified: false,
+};
 
-        verificationTokenExpiresAt:
-          new Date(
-            Date.now() +
-              VERIFICATION_TOKEN_DURATION
-          ),
+if (normalizedName) {
+  userData.name = normalizedName;
+}
 
-        isVerified:
-          false,
-      });
+if (normalizedPhone) {
+  userData.phone = normalizedPhone;
+}
+
+if (normalizedBrand) {
+  userData.brand = normalizedBrand;
+}
+
+const user = new User(userData);
 
     /*
      Brand creators receive the seven-day
